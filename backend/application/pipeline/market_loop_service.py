@@ -215,7 +215,12 @@ class MarketLoopService:
                 return
 
             now = time.monotonic()
-            last = self._last_decision_by_symbol.get(event_symbol, 0.0)
+            # ``-inf`` sentinel: never-decided must never trip the cooldown.
+            # Seeding with 0.0 made the first decision depend on machine
+            # uptime (monotonic() is time-since-boot): a freshly booted host
+            # -- including any CI runner or restarted trading box -- sat out
+            # its first min_decision_interval_seconds entirely.
+            last = self._last_decision_by_symbol.get(event_symbol, float("-inf"))
             if now - last < self._min_decision_interval:
                 self._decisions_skipped_cooldown += 1
                 return
