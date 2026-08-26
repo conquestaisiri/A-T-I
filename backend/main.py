@@ -36,8 +36,8 @@ from backend.domain.context.errors import ConfigurationError
 from backend.infrastructure.ai.smart_fallback_reasoner import OmegaConfig, SmartFallbackReasoner
 from backend.infrastructure.config.context_loader import load_context_settings
 from backend.infrastructure.config.settings import settings
-from backend.infrastructure.execution.mt5.bridge import MT5Bridge
-from backend.infrastructure.observation.mt5_adapter import _build_adapter
+from backend.infrastructure.execution.mt5.bridge import MT5Bridge, MT5Credentials
+from backend.infrastructure.observation.mt5_adapter import MT5ObservationAdapter
 from backend.infrastructure.observation.observation_bus import ObservationBus
 from backend.infrastructure.sqlite.context_repository import SqliteContextRepository
 from backend.infrastructure.sqlite.database import Database
@@ -258,29 +258,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.market_loop_enabled = False
 
     # --- MT5 observation adapter (live forex ticks, same bus as crypto) ---
-    # Starts whenever MT5 credentials are present in .env; paper-mode + sandbox
-    # guard ensures no real-order mutations slip through. The adapter publishes
-    # ObservationEvent(TICKER/TRADE) onto the shared bus; the existing
-    # DecisionPipelineService + risk gate + PaperTradingSimulator all consume
-    # from the bus identically to CCXT observations.
+    # Starts whenever MT5 credentials are present in .env; the MetaTrader5
+    # terminal itself is only touched lazily on first poll, so a closed
+    # terminal never blocks API startup. The adapter publishes
+    # ObservationEvent(TICKER/TRADE) onto the shared bus; decision pipeline,
+    # risk gate and paper simulator consume it identically to CCXT events.
     try:
         _mt5_login = settings.mt5_login
         _mt5_password = settings.mt5_password
         _mt5_server = settings.mt5_server
         if _mt5_login and _mt5_password and _mt5_server:
             _mt5_bridge = MT5Bridge(
-                login=_mt5_login,
-                password=_mt5_password,
-                server=_mt5_server,
+                MT5Credentials(
+                    login=int(_mt5_login),
+                    password=_mt5_password,
+                    server=_mt5_server,
+                )
             )
-            # Do a cheap connectivity check so a missing terminal at start
-            # does not block the API.
-            _mt5_bridge._ensure_connected()  # type: ignore[attr-defined]
-            _mt5_adapter = _build_adapter(
+            _mt5_adapter = MT5ObservationAdapter(
                 event_bus=observation_bus,
                 bridge=_mt5_bridge,
                 symbols=tuple(settings.forex_symbols.split(",")),
             )
+            market_tasks.append(_mt5_adapter.start())
             app.state.mt5_adapter = _mt5_adapter
             logger.info(
                 "MT5 observation adapter enabled: symbols=%s",

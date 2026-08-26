@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -197,13 +198,18 @@ class EdgarService:
 
         for cik in ciks:
             try:
-                # Run in thread pool since edgartools is sync
+                # Run in thread pool since edgartools is sync (to_thread
+                # accepts only positional args, so kwargs go via partial).
                 filings = await asyncio.to_thread(
-                    get_insider_transaction_filings,
-                    cik,
-                    start_date=start_date,
-                    end_date=end_date,
+                    functools.partial(
+                        get_insider_transaction_filings,
+                        cik,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
                 )
+                if not filings:
+                    continue
 
                 for filing in filings:
                     for txn in filing.transactions:
@@ -244,12 +250,16 @@ class EdgarService:
             try:
                 # Get 13F filings
                 filings = await asyncio.to_thread(
-                    get_filings,
-                    cik,
-                    form="13F",
-                    start_date=start_date,
-                    end_date=end_date,
+                    functools.partial(
+                        get_filings,
+                        cik,
+                        form="13F",
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
                 )
+                if not filings:
+                    continue
 
                 for filing in filings:
                     try:

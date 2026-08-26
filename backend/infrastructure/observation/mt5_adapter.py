@@ -13,6 +13,8 @@ See investigation agent 7 report for full context:
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import math
 import time as _time
 from typing import Any
 
@@ -80,14 +82,22 @@ class MT5ObservationAdapter:
         self._symbols = symbols
         self._tick_interval = tick_interval
         self._rate_interval = rate_interval
+        self._task: asyncio.Task[None] | None = None
 
-    async def start(self) -> None:
-        """Launch the dual-rate publisher loop."""
+    def start(self) -> asyncio.Task[None]:
+        """Spawn the dual-rate publisher loop and return its task.
+
+        Returning the task lets the composition root (lifespan) track it for
+        ordered cancellation at shutdown, alongside the other market tasks.
+        """
         self._task = asyncio.create_task(self._run())
+        return self._task
 
     async def stop(self) -> None:
-        if self._task:
+        if self._task is not None:
             self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
             self._task = None
 
     async def _run(self) -> None:
@@ -96,7 +106,7 @@ class MT5ObservationAdapter:
         while True:
             # --- TICK polls (high frequency, lightweight) ---
             tick_cycle += 1
-            if tick_cycle % max(1, __import__("math").ceil(60 / self._tick_interval)) == 0:
+            if tick_cycle % max(1, math.ceil(60 / self._tick_interval)) == 0:
                 for sym in self._symbols:
                     try:
                         ev = await _mt5_tick_event(self._bridge, sym)
@@ -107,7 +117,7 @@ class MT5ObservationAdapter:
 
             # --- RATE-bar polls (lower frequency, full bar) ---
             rate_cycle += 1
-            if rate_cycle % max(1, __import__("math").ceil(60 / self._rate_interval)) == 0:
+            if rate_cycle % max(1, math.ceil(60 / self._rate_interval)) == 0:
                 for sym in self._symbols:
                     try:
                         ev = await _mt5_trade_event(self._bridge, sym)
@@ -117,10 +127,3 @@ class MT5ObservationAdapter:
                         pass
 
             await asyncio.sleep(min(self._tick_interval, self._rate_interval))
-
-
-def _build_adapter(event_bus: Any, bridge: MT5Bridge) -> MT5ObservationAdapter:
-    """Factory: return a started adapter instance."""
-    adapter = MT5ObservationAdapter(event_bus, bridge)
-    asyncio.create_task(adapter.start())
-    return adapter

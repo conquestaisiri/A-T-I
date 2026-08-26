@@ -584,7 +584,7 @@ class CcxtOrderGateway(OrderGateway, VenueStateSource):
 
 def _default_exchange_factory(config: CcxtVenueConfig) -> _AsyncExchange:
     """Instantiate a real CCXT async exchange from the configuration."""
-    import ccxt.async_support as ccxt_async  # type: ignore[import-untyped]
+    import ccxt.async_support as ccxt_async
 
     exchange_cls = getattr(ccxt_async, config.venue_id, None)
     if exchange_cls is None:

@@ -18,5 +18,5 @@ warn_unused_configs = true
 files = ["backend"]
 
 [[tool.mypy.overrides]]
-module = ["feedparser", "torch", "transformers", "riskfolio", "cvxpy", "pandas", "MetaTrader5"]
+module = ["feedparser", "torch", "transformers", "riskfolio", "cvxpy", "pandas", "MetaTrader5", "ccxt.*"]
 ignore_missing_imports = true
