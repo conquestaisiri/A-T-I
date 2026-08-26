@@ -184,6 +184,7 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
 <div class="top">
   <span class="top-logo">ATI<b>·</b>Trading Intelligence</span>
   <div class="top-sep"></div>
+  <span class="top-pair mono" style="font-size:10px;font-weight:700;color:var(--tx2);letter-spacing:.04em" v-text="pair"></span>
   <span class="top-price" :class="priceDir" v-text="priceFmt"></span>
   <span class="top-chg" :class="priceDir" v-text="priceChg"></span>
     <span v-if="priceStale" class="pl pl-r pd">STALE FEED</span>
@@ -272,7 +273,18 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
       </div>
     </div>
     <div class="pnl">
-      <div class="pnl-h"><span class="pnl-t">AI Decision</span><span class="pl pl-p">Omega</span></div>
+      <div class="pnl-h"><span class="pnl-t">AI Decision</span><span class="pl pl-p">Omega</span>
+        <span class="pl" :class="engineRunning?'pl-g':'pl-gy'" style="margin-left:6px" v-text="engineRunning ? (autoTrade?'AUTO':'WATCH') : 'PAUSED'"></span>
+      </div>
+      <!-- Engine controls — the START button you asked for -->
+      <div style="padding:6px 8px;display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--bd);background:var(--bg2)">
+        <button class="btn" :class="engineRunning?'btn-g':'btn-p'" @click="toggleEngine" :disabled="engineBusy" style="flex:1;font-size:10px;padding:6px">
+          <span v-if="engineBusy" class="spin" style="width:11px;height:11px;margin:0;border-width:1.5px"></span>
+          <span v-else v-text="engineRunning ? '⏸ PAUSE ENGINE' : '▶ START ENGINE'"></span>
+        </button>
+        <button class="btn btn-g" :class="autoTrade?'pl-g':'pl-gy'" @click="toggleAutoTrade" :disabled="engineBusy" style="font-size:9px;padding:6px 10px" v-text="autoTrade ? 'AUTO-TRADE ON' : 'MANUAL ONLY'"></button>
+      </div>
+      <div v-if="engineMsg" class="mono" style="padding:4px 8px;font-size:9px;color:var(--cyn);background:var(--bg0);border-bottom:1px solid var(--bd)" v-text="engineMsg"></div>
       <div style="padding:8px 10px" v-if="latestDecision">
         <div style="display:flex;gap:12px;margin-bottom:6px">
           <div><div style="font-size:8px;color:var(--tx3)">ACTION</div>
@@ -282,15 +294,11 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
             <span class="mono" style="font-weight:700;font-size:14px" v-text="Math.round(latestDecision.conf*100)+'%'"></span></div></div>
         </div>
         <div class="ai-rat" v-text="latestDecision.rationale"></div>
-        <div style="display:flex;gap:6px;margin-top:10px">
-          <button class="btn btn-p" @click="drivePipeline" :disabled="driving" style="flex:1;font-size:10px;padding:5px">
-            <span v-if="driving" class="spin" style="width:11px;height:11px;margin:0;border-width:1.5px"></span>
-            <span v-else v-text="'⚡ Drive /v1/drive'"></span>
-          </button>
-        </div>
-        <div v-if="driveResult" class="mono si" style="margin-top:6px;font-size:9px;padding:4px 6px;background:var(--bg0);border-radius:4px;color:var(--cyn)" v-text="driveResult"></div>
+        <div class="mono" style="margin-top:6px;font-size:9px;color:var(--tx3)" v-text="'Engine ' + (engineRunning ? (autoTrade ? 'auto-trading' : 'watch-only') : 'paused') + ' · ' + (isForex ? 'MT5 ' + pair : 'paper')"></div>
       </div>
-      <div style="padding:8px 10px" v-else><div class="emp"><i>🧠</i>Waiting for AI decision…</div></div>
+      <div style="padding:8px 10px" v-else>
+        <div class="emp"><i>🧠</i>Engine {{engineRunning ? (autoTrade ? 'running — AI will trade automatically' : 'watching — AI narrates only') : 'paused — press START ENGINE to begin'}}<br><small v-text="isForex ? 'Forex mode · ' + pair : 'Crypto mode'"></small></div>
+      </div>
     </div>
   </div>
 
@@ -517,7 +525,7 @@ createApp({
   setup() {
     // ═══ STATE ═══
     const view = ref('trading');
-    const pair = ref('BTCUSDT');
+    const pair = ref('EURUSD');
     const timeframe = ref('60m');
     const pairSearch = ref('');
     const equity = ref(10000);
@@ -558,6 +566,10 @@ createApp({
     const fxSpread = ref(null);
     const fxBook = ref({bid:null, ask:null});
     const sessionLabel = ref('');
+    const engineRunning = ref(false);
+    const autoTrade = ref(true);
+    const engineBusy = ref(false);
+    const engineMsg = ref('');
 
     let chart = null, candleSeries = null, volSeries = null;
     let wsMain = null, wsMarket = null;
@@ -654,16 +666,35 @@ createApp({
         sysStatus.value = sup.status;
         sysReason.value = sup.reason || '';
 
-        // Price from MEXC
-        const tick = await api.get(`/v1/market/ticker?symbol=${pair.value}`);
-        if (tick.price) {
-          const p = parseFloat(tick.price);
-          prevPrice.value = price.value;
-          price.value = p;
-          priceDir.value = prevPrice.value != null ? (p >= prevPrice.value ? 'up' : 'down') : '';
-          priceFmt.value = fmt(p);
-          const chg = prevPrice.value != null ? ((p - prevPrice.value) / prevPrice.value * 100) : 0;
-          priceChg.value = `${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%`;
+        // Price — forex uses MT5, crypto uses MEXC
+        if (isForex.value) {
+          try {
+            const t = await api.get(`/v1/mt5/tick/${pair.value}`);
+            const bid = Number(t.bid), ask = Number(t.ask);
+            const mid = bid && ask ? (bid + ask) / 2 : Number(t.last);
+            if (mid && mid > 0) {
+              prevPrice.value = price.value;
+              price.value = mid;
+              priceDir.value = prevPrice.value != null ? (mid >= prevPrice.value ? 'up' : 'down') : '';
+              priceFmt.value = fmt(mid, pair.value.includes('JPY') ? 3 : 5);
+              const chg = prevPrice.value != null ? ((mid - prevPrice.value) / prevPrice.value * 100) : 0;
+              priceChg.value = `${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%`;
+              fxSpread.value = bid && ask ? fmt(ask - bid, 5) : null;
+              fxBook.value = {bid: bid ? fmt(bid, 5) : null, ask: ask ? fmt(ask, 5) : null};
+              priceStale.value = false;
+            }
+          } catch(e) { /* MT5 tick unavailable yet — pollFxTick will retry */ }
+        } else {
+          const tick = await api.get(`/v1/market/ticker?symbol=${pair.value}`);
+          if (tick.price) {
+            const p = parseFloat(tick.price);
+            prevPrice.value = price.value;
+            price.value = p;
+            priceDir.value = prevPrice.value != null ? (p >= prevPrice.value ? 'up' : 'down') : '';
+            priceFmt.value = fmt(p);
+            const chg = prevPrice.value != null ? ((p - prevPrice.value) / prevPrice.value * 100) : 0;
+            priceChg.value = `${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%`;
+          }
         }
 
         // Proposals count
@@ -980,8 +1011,40 @@ createApp({
         const s = await api.get('/v1/operator/system');
         systemMode.value = (s.mode || 'crypto').toLowerCase();
         systemSymbols.value = s.forex_symbols || [];
-        if (isForex.value) allPairs.value = systemSymbols.value;
+        if (isForex.value) {
+          allPairs.value = systemSymbols.value;
+          // Ensure the selected pair actually exists in the forex universe.
+          if (!systemSymbols.value.includes(pair.value)) pair.value = systemSymbols.value[0] || 'EURUSD';
+        }
       } catch (e) {}
+    }
+
+    async function loadEngineStatus() {
+      try {
+        const s = await api.get('/v1/engine/status');
+        engineRunning.value = !!s.running;
+        autoTrade.value = s.auto_trade !== undefined ? !!s.auto_trade : true;
+      } catch(e) {}
+    }
+    async function toggleEngine() {
+      engineBusy.value = true; engineMsg.value = '';
+      try {
+        const path = engineRunning.value ? '/v1/engine/stop' : '/v1/engine/start';
+        const r = await api.post(path, {});
+        engineMsg.value = r.running ? 'Engine started — watching ' + pair.value : 'Engine paused';
+        await loadEngineStatus();
+      } catch(e) { engineMsg.value = 'Engine toggle failed: ' + e.message; }
+      finally { engineBusy.value = false; }
+    }
+    async function toggleAutoTrade() {
+      engineBusy.value = true;
+      try {
+        const r = await api.post('/v1/engine/mode', {auto_trade: !autoTrade.value});
+        autoTrade.value = !!r.auto_trade;
+        engineMsg.value = autoTrade.value ? 'Auto-trade ON — AI will execute' : 'Manual only — AI narrates, you confirm';
+        await loadEngineStatus();
+      } catch(e) { engineMsg.value = 'Toggle failed: ' + e.message; }
+      finally { engineBusy.value = false; }
     }
 
     watch(pair, () => {
@@ -1060,14 +1123,15 @@ createApp({
     // ═══ POLLING ═══
     setInterval(loadCore, 5000);
     setInterval(() => {
-      if (view.value === 'trading') { loadOrderBook(); loadMexcTrades(); }
-      if (view.value === 'system') { loadEvents(); loadRiskConfig(); }
+      if (view.value === 'trading') { if (!isForex.value) { loadOrderBook(); loadMexcTrades(); } loadEngineStatus(); }
+      if (view.value === 'system') { loadEvents(); loadRiskConfig(); loadEngineStatus(); }
     }, 3000);
 
     // ═══ MOUNTED ═══
     onMounted(() => {
       nextTick(async () => {
         await loadSystem();
+        await loadEngineStatus();
         if (isForex.value) {
           initTVChart();
           pollFxTick();
@@ -1104,6 +1168,7 @@ createApp({
       closePosition, flattenAll, saveRiskConfig, loadRiskConfig, events,
       selectSearchPair,
       isForex, sessionLabel, fxSpread, fxBook, systemMode, initTVChart, pollFxTick,
+      engineRunning, autoTrade, engineBusy, engineMsg, toggleEngine, toggleAutoTrade, loadEngineStatus,
       loadKlines,
     };
   }

@@ -54,6 +54,7 @@ from backend.presentation.api.auth import verify_api_key
 from backend.presentation.api.routes_context import router as observability_router
 from backend.presentation.api.routes_decision import router as decision_router
 from backend.presentation.api.routes_drive import router as drive_router
+from backend.presentation.api.routes_engine import router as engine_router
 from backend.presentation.api.routes_market import router as market_router
 from backend.presentation.api.routes_memory import router as memory_router
 from backend.presentation.api.routes_mt5 import router as mt5_router
@@ -80,6 +81,21 @@ def _risk_gate_config_from_settings() -> RiskGateConfig:
         veto_on_toxicity=settings.risk_veto_toxicity,
         veto_on_excess_impact=settings.risk_veto_impact,
     )
+
+
+def _engine_persisted_auto_trade() -> bool:
+    """Restore AUTO-TRADE toggle from data/engine_state.json; default True."""
+    try:
+        import json as _json
+
+        p = Path("data/engine_state.json")
+        if p.exists():
+            raw = _json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and "auto_trade" in raw:
+                return bool(raw["auto_trade"])
+    except Exception:
+        pass
+    return True
 
 
 @asynccontextmanager
@@ -202,6 +218,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ),
         event_veto_pre_minutes=settings.event_veto_pre_minutes,
         event_veto_post_minutes=settings.event_veto_post_minutes,
+        auto_trade=_engine_persisted_auto_trade(),
     )
     app.state.database = database
 
@@ -378,15 +395,18 @@ async def _security_headers(request, call_next):  # type: ignore[no-untyped-def]
         "default-src 'self'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: https://*.tradingview.com https://s3.tradingview.com; "
         # 'unsafe-eval' is required by Vue's in-DOM template compiler
         # (new Function). The dashboard is same-origin only.
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+        "https://unpkg.com https://s3.tradingview.com; "
         "connect-src 'self' https://api.llm7.io https://api.kilo.ai "
         "https://oai.endpoints.kepler.ai.cloud.ovh.net https://api.groq.com "
         "https://openrouter.ai https://api.cerebras.ai "
         "https://generativelanguage.googleapis.com https://agentrouter.ai "
-        "https://opencode.ai;"
+        "https://opencode.ai https://*.tradingview.com https://s3.tradingview.com; "
+        "frame-src 'self' https://*.tradingview.com https://s3.tradingview.com; "
+        "child-src 'self' https://*.tradingview.com https://s3.tradingview.com;"
     )
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -404,6 +424,7 @@ app.include_router(reconciliation_router)
 app.include_router(market_router)
 app.include_router(mt5_router)
 app.include_router(operator_router)
+app.include_router(engine_router)
 
 
 # --- WebSocket for real-time streaming ---

@@ -186,6 +186,9 @@ class MT5Bridge:
         """Submit a coroutine to the MT5 event loop and wait for result."""
         loop = self._loop
         if loop is None or not self._running:
+            # Avoid "coroutine was never awaited" warning when the bridge
+            # isn't running (common in tests and when the terminal is closed).
+            coro.close()
             raise RuntimeError("MT5 bridge not running")
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         return future.result(timeout=30)

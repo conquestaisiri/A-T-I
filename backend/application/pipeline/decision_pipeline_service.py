@@ -84,6 +84,7 @@ class DecisionPipelineService:
         macro_calendar: MacroCalendar | None = None,
         event_veto_pre_minutes: int = 30,
         event_veto_post_minutes: int = 15,
+        auto_trade: bool = True,
     ) -> None:
         self._reasoner = reasoner
         self._proposal_repository = proposal_repository
@@ -92,6 +93,7 @@ class DecisionPipelineService:
         self._supervisor = supervisor
         self._risk_feed = risk_feed
         self._kelly_from_memory = kelly_from_memory
+        self._auto_trade = bool(auto_trade)
         self._macro_calendar = macro_calendar
         self._event_veto_pre_minutes = max(0, int(event_veto_pre_minutes))
         self._event_veto_post_minutes = max(0, int(event_veto_post_minutes))
@@ -154,6 +156,28 @@ class DecisionPipelineService:
                     position=None,
                     record=None,
                 )
+
+        # Watch-only mode (manual): the engine still runs, ingests, and
+        # reasons, but never turns a proposal into a fill. The AI journal
+        # keeps narrating, but AUTO-TRADE off means no ledger impact.
+        if not self._auto_trade:
+            risk = self._simulator.risk_snapshot(symbol=symbol)
+            proposal = self._reasoner.reason(context, risk)
+            self._persist_proposal(proposal)
+            logger.info(
+                "Watch-only (%s): proposal %s would have been %s -- suppressed",
+                symbol,
+                proposal.proposal_id,
+                proposal.actions[0].action_type.value if proposal.actions else "no_action",
+            )
+            return SimulationStep(
+                proposal_id=proposal.proposal_id,
+                result=SimulationResult.NO_ACTION,
+                risk_verdict="watch_only:manual_mode",
+                report=None,
+                position=None,
+                record=None,
+            )
 
         risk = self._simulator.risk_snapshot(symbol=symbol)
         proposal = self._reasoner.reason(context, risk)
