@@ -52,6 +52,32 @@ def compute_levels(bars: list[dict[str, Any]]) -> dict[str, Any]:
         annotations.append({"price": last + atr_like * 2, "label": "SL (bear)", "color": "#ffb820"})
         annotations.append({"price": last - atr_like * 3, "label": "TP (bear)", "color": "#ff4757"})
 
+    # FVG gaps — 3-candle gap where wick leaves imbalance
+    fvgs: list[dict[str, Any]] = []
+    for i in range(1, len(bars) - 1):
+        if lows[i + 1] > highs[i - 1]:
+            fvgs.append(
+                {
+                    "type": "bullish_fvg",
+                    "top": lows[i + 1],
+                    "bottom": highs[i - 1],
+                    "mid": (lows[i + 1] + highs[i - 1]) / 2,
+                }
+            )
+        elif highs[i + 1] < lows[i - 1]:
+            fvgs.append(
+                {
+                    "type": "bearish_fvg",
+                    "top": lows[i - 1],
+                    "bottom": highs[i + 1],
+                    "mid": (highs[i + 1] + lows[i - 1]) / 2,
+                }
+            )
+    fvgs = fvgs[-3:]
+    for f in fvgs:
+        color = "#00e5a0" if f["type"] == "bullish_fvg" else "#ff4757"
+        annotations.append({"price": f["mid"], "label": f["type"], "color": color, "fvg": f})
+
     return {
         "symbol": "",
         "trend": trend,
@@ -62,6 +88,7 @@ def compute_levels(bars: list[dict[str, Any]]) -> dict[str, Any]:
             {"price": mid, "type": "mid"},
         ],
         "annotations": annotations,
+        "fvgs": fvgs,
         "last_close": last,
         "ma20": ma20,
         "ma50": ma50,

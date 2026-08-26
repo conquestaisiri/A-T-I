@@ -414,6 +414,11 @@ async def _security_headers(request, call_next):  # type: ignore[no-untyped-def]
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    # Cache bust for the dashboard — prevents the old-bundle screenshot trap
+    if request.url.path == "/" or request.url.path.endswith((".html", ".js")):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     return response
 
 

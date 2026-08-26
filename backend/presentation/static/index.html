@@ -301,7 +301,9 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
         <span class="live-dot" style="width:6px;height:6px;border-radius:50%;background:var(--grn);box-shadow:0 0 6px var(--grn)"></span>
         <span class="pl pl-b" style="font-size:9px" v-text="timeframe"></span>
         <span class="chart-ohlc" style="color:var(--tx2);display:flex;gap:10px;margin-left:8px" v-if="!isForex"><span>O <b v-text="priceFmt"></b></span></span>
-        <button class="btn btn-g" style="margin-left:auto;padding:2px 6px;font-size:9px" @click="document.querySelector('.chart-box')?.classList.toggle('fs')">⛶ Fullscreen</button>
+        <button class="btn btn-g" :class="drawMode?'btn-p':''" @click="drawMode=!drawMode" style="margin-left:auto;padding:2px 6px;font-size:9px" v-text="drawMode?'✏️ Drawing (click chart)':'✏️ Draw'"></button>
+        <button class="btn btn-g" @click="clearDrawings" style="padding:2px 6px;font-size:9px" v-if="drawMode">Clear</button>
+        <button class="btn btn-g" style="padding:2px 6px;font-size:9px" @click="document.querySelector('.chart-box')?.classList.toggle('fs')">⛶ Fullscreen</button>
       </div>
       <div class="chart-box" style="position:relative;height:380px">
       <div ref="chartEl" v-show="!isForex" style="position:absolute;inset:0"></div>
@@ -655,6 +657,18 @@ const {createApp, ref, computed, onMounted, watch, nextTick} = Vue;
 
 createApp({
   setup() {
+    // Cache bust — ensures you never see the old screenshot again
+    const BUILD_VERSION = '2026-08-26-v6';
+    if (localStorage.getItem('ati_build') !== BUILD_VERSION) {
+      localStorage.setItem('ati_build', BUILD_VERSION);
+      if (!sessionStorage.getItem('ati_reloaded')) {
+        sessionStorage.setItem('ati_reloaded', '1');
+        location.reload();
+        return {};
+      }
+    } else {
+      sessionStorage.removeItem('ati_reloaded');
+    }
     // ═══ STATE ═══
     const view = ref('trading');
     const pair = ref('EURUSD');
@@ -706,8 +720,11 @@ createApp({
     const chatInput = ref('');
     const chatBusy = ref(false);
     const chatScroll = ref(null);
+    const chatHistories = ref({});
     const taLevels = ref(null);
     const strategyBoard = ref([]);
+    const drawMode = ref(false);
+    const drawingsBySymbol = ref(JSON.parse(localStorage.getItem('ati_drawings') || '{}'));
     const manualSymbol = ref('EURUSD');
     const manualSide = ref('buy');
     const manualQty = ref('0.10');
@@ -718,6 +735,7 @@ createApp({
     let chart = null, candleSeries = null, volSeries = null;
     let wsMain = null, wsMarket = null;
     let taLines = [];
+    let manualLines = [];
 
     // ═══ COMPUTED ═══
     const isForex = computed(() => systemMode.value === 'forex');
@@ -1160,6 +1178,33 @@ createApp({
       });
       volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol'});
       chart.priceScale('vol').applyOptions({scaleMargins:{top:.85,bottom:0}});
+      chart.subscribeClick(param => {
+        if (!drawMode.value || !param.time || !candleSeries) return;
+        const price = param.seriesPrices.get(candleSeries);
+        if (price == null) return;
+        const label = prompt('Label for level:', 'Level ' + Number(price).toFixed(5));
+        if (!label) return;
+        const line = candleSeries.createPriceLine({price, color:'#ffcc00', lineWidth:1, lineStyle:2, axisLabelVisible:true, title:label});
+        manualLines.push(line);
+        const arr = drawingsBySymbol.value[pair.value] || [];
+        arr.push({price, label, color:'#ffcc00'});
+        drawingsBySymbol.value[pair.value] = arr;
+        try { localStorage.setItem('ati_drawings', JSON.stringify(drawingsBySymbol.value)); } catch(e) {}
+      });
+      // Restore per-symbol manual drawings
+      const saved = drawingsBySymbol.value[pair.value] || [];
+      saved.forEach(d => {
+        try {
+          const line = candleSeries.createPriceLine({price:d.price, color:d.color, lineWidth:1, lineStyle:2, axisLabelVisible:true, title:d.label});
+          manualLines.push(line);
+        } catch(e) {}
+      });
+    }
+    function clearDrawings() {
+      manualLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch(e) {} });
+      manualLines = [];
+      drawingsBySymbol.value[pair.value] = [];
+      try { localStorage.setItem('ati_drawings', JSON.stringify(drawingsBySymbol.value)); } catch(e) {}
     }
 
     // ═══ VIEW WATCHER ═══
@@ -1221,12 +1266,16 @@ createApp({
       const msg = chatInput.value.trim();
       if (!msg || chatBusy.value) return;
       chatHistory.value.push({role:'user', content: msg});
+      chatHistories.value[pair.value] = [...chatHistory.value];
+      try { localStorage.setItem('ati_chats', JSON.stringify(chatHistories.value)); } catch(e) {}
       chatInput.value = '';
       chatBusy.value = true;
       nextTick(() => { if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight; });
       try {
         const r = await api.post('/v1/ai/chat', {message: msg, history: chatHistory.value.slice(-6)});
         chatHistory.value.push({role:'assistant', content: r.reply || 'No reply'});
+        chatHistories.value[pair.value] = [...chatHistory.value];
+        try { localStorage.setItem('ati_chats', JSON.stringify(chatHistories.value)); } catch(e) {}
         // If the AI switched symbol, reflect it locally
         if (r.actions && r.actions.some(a => a.tool === 'set_symbol')) {
           const sym = r.actions.find(a => a.tool === 'set_symbol')?.params?.symbol;
@@ -1239,6 +1288,8 @@ createApp({
         }
       } catch(e) {
         chatHistory.value.push({role:'assistant', content: 'Chat failed: ' + e.message});
+        chatHistories.value[pair.value] = [...chatHistory.value];
+        try { localStorage.setItem('ati_chats', JSON.stringify(chatHistories.value)); } catch(e) {}
       } finally {
         chatBusy.value = false;
         nextTick(() => { if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight; });
@@ -1271,7 +1322,25 @@ createApp({
       finally { busyControl.value = false; }
     }
 
-    watch(pair, () => {
+    watch(pair, (newPair, oldPair) => {
+      // Persist chat room per currency — survives pair switches and reloads
+      if (oldPair) {
+        chatHistories.value[oldPair] = [...chatHistory.value];
+        try { localStorage.setItem('ati_chats', JSON.stringify(chatHistories.value)); } catch(e) {}
+      }
+      chatHistory.value = chatHistories.value[newPair] ? [...chatHistories.value[newPair]] : [];
+      // Restore drawings for this symbol
+      try {
+        manualLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch(e) {} });
+        manualLines = [];
+        const saved = drawingsBySymbol.value[newPair] || [];
+        saved.forEach(d => {
+          try {
+            const line = candleSeries.createPriceLine({price:d.price, color:d.color, lineWidth:1, lineStyle:2, axisLabelVisible:true, title:d.label});
+            manualLines.push(line);
+          } catch(e) {}
+        });
+      } catch(e) {}
       if (isForex.value) { initTVChart(); pollFxTick(); loadTA(); }
       else loadKlines();
     });
@@ -1356,6 +1425,7 @@ createApp({
       nextTick(async () => {
         await loadSystem();
         await loadEngineStatus();
+        try { const saved = JSON.parse(localStorage.getItem('ati_chats')||'{}'); chatHistories.value = saved; if (saved[pair.value]) chatHistory.value = [...saved[pair.value]]; } catch(e) {}
         if (isForex.value) {
           initTVChart();
           pollFxTick();
@@ -1398,6 +1468,7 @@ createApp({
       chatHistory, chatInput, chatBusy, chatScroll, sendChat,
       taLevels, loadTA, strategyBoard, loadStrategyBoard,
       manualSymbol, manualSide, manualQty, manualSL, manualTP, manualMsg, manualOpen, forceTrade,
+      drawMode, drawingsBySymbol, clearDrawings,
       loadKlines,
     };
   }

@@ -247,6 +247,16 @@ async def _execute_tool(name: str, params: dict[str, Any], request: Request) -> 
 async def _llm_reply(
     system_state: dict[str, Any], user_msg: str, history: list[dict[str, str]]
 ) -> str | None:
+    # Context compaction — keep context bounded, survives model switches
+    total_chars = sum(len(h.get("content", "")) for h in history)
+    if total_chars > 6000 and len(history) > 4:
+        keep = history[-4:]
+        old = history[:-4]
+        summary = "Earlier conversation compacted: " + " | ".join(
+            h.get("content", "")[:120] for h in old[:3]
+        )
+        history = [{"role": "system", "content": summary}] + keep
+
     # Try Omega-style provider pool; fall back to None if no keys
     try:
         from backend.infrastructure.secrets.sagax_loader import load_provider_keys
