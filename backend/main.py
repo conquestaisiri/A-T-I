@@ -51,6 +51,7 @@ from backend.infrastructure.sqlite.reconciliation_repository import (
     SqliteReconciliationRepository,
 )
 from backend.presentation.api.auth import verify_api_key
+from backend.presentation.api.routes_ai import router as ai_router
 from backend.presentation.api.routes_context import router as observability_router
 from backend.presentation.api.routes_decision import router as decision_router
 from backend.presentation.api.routes_drive import router as drive_router
@@ -425,6 +426,7 @@ app.include_router(market_router)
 app.include_router(mt5_router)
 app.include_router(operator_router)
 app.include_router(engine_router)
+app.include_router(ai_router)
 
 
 # --- WebSocket for real-time streaming ---

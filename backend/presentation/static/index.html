@@ -358,9 +358,24 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
       <div style="padding:4px 8px"><div class="es" style="max-height:200px">
         <div class="es-r" v-for="e in events" :key="e.ts+e.type"><span class="t" v-text="e.time"></span><span class="tag" :class="e.cls" v-text="e.type"></span><span class="m" v-text="e.msg"></span></div>
       </div></div>
+      </div>
+    </div>
+    <!-- AI Chat — the NPC that knows the house -->
+    <div class="pnl" style="margin-top:8px">
+      <div class="pnl-h"><span class="pnl-t">AI Chat</span><span class="pl pl-c">concierge</span></div>
+      <div style="max-height:180px;overflow-y:auto;padding:6px 8px" ref="chatScroll">
+        <div v-if="!chatHistory.length" class="mono" style="font-size:10px;color:var(--tx3);padding:6px">Ask me: "are you trading?", "trade XAUUSD", "start engine", "what's happening?"</div>
+        <div v-for="(m,i) in chatHistory" :key="i" :style="{textAlign: m.role==='user' ? 'right' : 'left', margin:'4px 0'}">
+          <span :style="{display:'inline-block',maxWidth:'85%',padding:'4px 8px',borderRadius:'6px',fontSize:'11px',background: m.role==='user' ? 'var(--blu2)' : 'var(--bg2)', color: m.role==='user' ? 'var(--tx1)' : 'var(--tx2)'}" v-text="m.content"></span>
+        </div>
+        <div v-if="chatBusy" class="mono" style="font-size:10px;color:var(--tx3);padding:4px">…thinking</div>
+      </div>
+      <div style="display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--bd)">
+        <input class="in" v-model="chatInput" @keyup.enter="sendChat" placeholder="Talk to the engine…" style="flex:1;font-size:11px;padding:6px 8px" :disabled="chatBusy">
+        <button class="btn btn-p" @click="sendChat" :disabled="chatBusy || !chatInput.trim()" style="font-size:10px;padding:6px 12px">Send</button>
+      </div>
     </div>
   </div>
-</div>
 
 <!-- ═══ AI BRAIN VIEW ═══ -->
 <div class="v" :class="{on:view==='intel'}">
@@ -570,6 +585,10 @@ createApp({
     const autoTrade = ref(true);
     const engineBusy = ref(false);
     const engineMsg = ref('');
+    const chatHistory = ref([]);
+    const chatInput = ref('');
+    const chatBusy = ref(false);
+    const chatScroll = ref(null);
 
     let chart = null, candleSeries = null, volSeries = null;
     let wsMain = null, wsMarket = null;
@@ -1047,6 +1066,34 @@ createApp({
       finally { engineBusy.value = false; }
     }
 
+    async function sendChat() {
+      const msg = chatInput.value.trim();
+      if (!msg || chatBusy.value) return;
+      chatHistory.value.push({role:'user', content: msg});
+      chatInput.value = '';
+      chatBusy.value = true;
+      nextTick(() => { if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight; });
+      try {
+        const r = await api.post('/v1/ai/chat', {message: msg, history: chatHistory.value.slice(-6)});
+        chatHistory.value.push({role:'assistant', content: r.reply || 'No reply'});
+        // If the AI switched symbol, reflect it locally
+        if (r.actions && r.actions.some(a => a.tool === 'set_symbol')) {
+          const sym = r.actions.find(a => a.tool === 'set_symbol')?.params?.symbol;
+          if (sym && topPairs.value.includes(sym)) pair.value = sym;
+        }
+        if (r.state) {
+          // keep engine pills in sync after a chat-driven action
+          if (r.state.engine_running !== undefined) engineRunning.value = !!r.state.engine_running;
+          if (r.state.auto_trade !== undefined) autoTrade.value = !!r.state.auto_trade;
+        }
+      } catch(e) {
+        chatHistory.value.push({role:'assistant', content: 'Chat failed: ' + e.message});
+      } finally {
+        chatBusy.value = false;
+        nextTick(() => { if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight; });
+      }
+    }
+
     watch(pair, () => {
       if (isForex.value) { initTVChart(); pollFxTick(); }
       else loadKlines();
@@ -1169,6 +1216,7 @@ createApp({
       selectSearchPair,
       isForex, sessionLabel, fxSpread, fxBook, systemMode, initTVChart, pollFxTick,
       engineRunning, autoTrade, engineBusy, engineMsg, toggleEngine, toggleAutoTrade, loadEngineStatus,
+      chatHistory, chatInput, chatBusy, chatScroll, sendChat,
       loadKlines,
     };
   }
