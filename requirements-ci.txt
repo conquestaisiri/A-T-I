@@ -19,6 +19,8 @@ pandas==3.0.5
 riskfolio-lib==7.3.0
 cvxpy==1.9.2
 pydantic-ai-slim>=2.0
+# pydantic-ai optional provider extra required by reasoner tests at collection.
+openai==2.53.0
 
 # Tooling + typing stubs
 pytest>=7.4
