@@ -66,6 +66,29 @@ def build_components(tmp_path: Path):
     return database, bus, ingest, decision, fill_engine
 
 
+async def _synthetic_pre_warm(symbol: str) -> list[dict[str, object]]:
+    """Hermetic stand-in for the MEXC klines fetch: 200 deterministic candles.
+
+    Injected into every MarketLoopService under test so ``start()`` never
+    touches the network — pre-warm behaviour stays exercised, reachability
+    is not part of the contract these tests own.
+    """
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    hour_ms = 3_600_000
+    price = 100.0
+    candles: list[dict[str, object]] = []
+    for i in range(200):
+        ts = now_ms - (200 - i) * hour_ms
+        o = price
+        c = round(price * 1.001, 6)
+        candles.append(
+            {"time": ts, "open": o, "high": max(o, c), "low": min(o, c), "close": c, "volume": 1.0}
+        )
+        price = c
+    _ = symbol  # one warm series per requested symbol; content is symbol-agnostic
+    return candles
+
+
 async def _publish_tick(
     bus: ObservationBus,
     symbol: str,
@@ -102,6 +125,7 @@ def test_loop_drives_decisions_from_bus(tmp_path: Path) -> None:
                 fill_engine=fill_engine,
                 symbol="btcusdt",
                 thread_lock=threading.Lock(),
+                pre_warm_fetcher=_synthetic_pre_warm,
             )
             task = asyncio.create_task(loop.start())
             base = datetime.now(UTC)
@@ -137,6 +161,7 @@ def test_loop_ignores_other_symbols(tmp_path: Path) -> None:
                 decision_pipeline=decision,
                 fill_engine=fill_engine,
                 symbol="btcusdt",
+                pre_warm_fetcher=_synthetic_pre_warm,
             )
             task = asyncio.create_task(loop.start())
             base = datetime.now(UTC)
@@ -170,6 +195,7 @@ def test_loop_survives_malformed_event(tmp_path: Path) -> None:
                 decision_pipeline=decision,
                 fill_engine=fill_engine,
                 symbol="btcusdt",
+                pre_warm_fetcher=_synthetic_pre_warm,
             )
             task = asyncio.create_task(loop.start())
             base = datetime.now(UTC)
@@ -213,6 +239,7 @@ def test_loop_trades_multiple_symbols(tmp_path: Path) -> None:
                 decision_pipeline=decision,
                 fill_engine=fill_engine,
                 symbols=["BTCUSDT", "ETHUSDT"],
+                pre_warm_fetcher=_synthetic_pre_warm,
             )
             task = asyncio.create_task(loop.start())
             base = datetime.now(UTC)
@@ -249,6 +276,7 @@ def test_cooldown_skips_rapid_second_decision(tmp_path: Path) -> None:
                 fill_engine=fill_engine,
                 symbols=["BTCUSDT"],
                 min_decision_interval_seconds=3600.0,
+                pre_warm_fetcher=_synthetic_pre_warm,
             )
             task = asyncio.create_task(loop.start())
             base = datetime.now(UTC)

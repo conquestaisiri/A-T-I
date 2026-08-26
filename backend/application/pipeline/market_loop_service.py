@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -79,6 +80,7 @@ class MarketLoopService:
         symbols: list[str] | tuple[str, ...] | set[str] | None = None,
         thread_lock: Any | None = None,
         min_decision_interval_seconds: float = 30.0,
+        pre_warm_fetcher: Callable[[str], Awaitable[list[dict[str, Any]] | None]] | None = None,
     ) -> None:
         if ingest_pipeline is None or decision_pipeline is None or fill_engine is None:
             raise ValueError("MarketLoopService requires ingest, decision and fill engine")
@@ -95,6 +97,10 @@ class MarketLoopService:
         else:
             self._symbols = frozenset()
         self._thread_lock = thread_lock
+        # Optional injected pre-warm source (DI seam). When ``None`` the loop
+        # falls back to its built-in MEXC candle fetch; tests and offline runs
+        # inject a synthetic fetcher so ``start()`` stays hermetic.
+        self._pre_warm_fetcher = pre_warm_fetcher
         # Decision cooldown (per symbol): without it every trade/tick drives a
         # full LLM round-trip, exhausting free-tier quotas within minutes and
         # flooding the ledger with near-duplicate proposals. Ingest still runs
@@ -143,14 +149,22 @@ class MarketLoopService:
         if not self._symbols:
             return
         try:
-            from backend.infrastructure.data_fabric.connectors.crypto.mexc import fetch_klines
-
             for trade_symbol in sorted(self._symbols):
                 symbol = trade_symbol.upper().replace("/", "").replace("_", "")
                 try:
-                    candles = await fetch_klines(symbol, "1h", 200)
+                    if self._pre_warm_fetcher is not None:
+                        candles = await self._pre_warm_fetcher(trade_symbol)
+                    else:
+                        from backend.infrastructure.data_fabric.connectors.crypto.mexc import (
+                            fetch_klines,
+                        )
+
+                        candles = await fetch_klines(symbol, "1h", 200)
                 except Exception:  # noqa: BLE001 -- one cold symbol must not block the rest
                     logger.warning("Pre-warm failed for %s — warming naturally", symbol)
+                    continue
+                if not candles:
+                    logger.warning("Pre-warm empty for %s — warming naturally", symbol)
                     continue
                 logger.info(
                     "Pre-warming features for %s with %d historical candles",
@@ -158,11 +172,6 @@ class MarketLoopService:
                     len(candles),
                 )
                 for i, candle in enumerate(candles):
-                    from backend.domain.observation.event import (
-                        ObservationEvent,
-                        ObservationEventType,
-                    )
-
                     ts = datetime.fromtimestamp(candle["time"] / 1000, tz=UTC)
                     event = ObservationEvent(
                         source_id="mexc",
