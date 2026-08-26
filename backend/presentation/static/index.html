@@ -246,7 +246,7 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
     <span class="pl pl-gy" v-if="allPairs.length" v-text="allPairs.length + ' pairs'"></span>
     <div style="display:flex;gap:2px">
       <button v-for="tf in timeframes" :key="tf" class="btn btn-g" :class="{active:timeframe===tf}"
-        @click="timeframe=tf; isForex ? initTVChart() : loadKlines()" style="padding:3px 8px;font-size:10px" v-text="tf"></button>
+        @click="timeframe=tf; isForex ? (initTVChart(), loadTA()) : loadKlines()" style="padding:3px 8px;font-size:10px" v-text="tf"></button>
     </div>
     <span class="pl pl-c" v-text="isForex ? 'MT5 Forex' : 'MEXC Live'"></span>
   </div>
@@ -298,6 +298,17 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
       </div>
       <div style="padding:8px 10px" v-else>
         <div class="emp"><i>🧠</i>Engine {{engineRunning ? (autoTrade ? 'running — AI will trade automatically' : 'watching — AI narrates only') : 'paused — press START ENGINE to begin'}}<br><small v-text="isForex ? 'Forex mode · ' + pair : 'Crypto mode'"></small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Technical Analysis — auto-drawn levels -->
+  <div class="c12" v-if="taLevels">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">AI Technical Analysis</span><span class="pl" :class="taLevels.bias==='bullish'?'pl-g':taLevels.bias==='bearish'?'pl-r':'pl-gy'" v-text="taLevels.bias + ' · ' + taLevels.trend"></span></div>
+      <div style="padding:6px 10px;display:flex;gap:12px;flex-wrap:wrap;font-size:11px">
+        <span v-for="a in taLevels.annotations" :key="a.label" class="pl" :style="{background: a.color + '22', color: a.color}" v-text="a.label + ' ' + fmt(a.price,5)"></span>
+        <span class="mono" style="color:var(--tx3)">MA20 {{fmt(taLevels.ma20,5)}} · MA50 {{fmt(taLevels.ma50,5)}}</span>
       </div>
     </div>
   </div>
@@ -589,9 +600,11 @@ createApp({
     const chatInput = ref('');
     const chatBusy = ref(false);
     const chatScroll = ref(null);
+    const taLevels = ref(null);
 
     let chart = null, candleSeries = null, volSeries = null;
     let wsMain = null, wsMarket = null;
+    let taLines = [];
 
     // ═══ COMPUTED ═══
     const isForex = computed(() => systemMode.value === 'forex');
@@ -993,6 +1006,24 @@ createApp({
       if (isForex.value && view.value === 'trading') pollFxTick();
     }, 1500);
 
+    async function loadTA() {
+      try {
+        const r = await api.get('/v1/ai/analysis/' + pair.value);
+        taLevels.value = r;
+        // Draw on lightweight chart if available (forex MT5 bars are also fed there when TV is off, but we draw anyway)
+        if (candleSeries && r.annotations) {
+          taLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch(e) {} });
+          taLines = [];
+          r.annotations.forEach(a => {
+            const line = candleSeries.createPriceLine({price: a.price, color: a.color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: a.label});
+            taLines.push(line);
+          });
+        }
+      } catch(e) {}
+    }
+    // Refresh TA every 60s and on pair change
+    setInterval(() => { if (view.value === 'trading') loadTA(); }, 60000);
+
     function initChart() {
       if (chart || !chartEl.value || typeof LightweightCharts === 'undefined') return;
       chart = LightweightCharts.createChart(chartEl.value, {
@@ -1016,7 +1047,7 @@ createApp({
     watch(view, (v) => {
       nextTick(() => {
         if (v === 'trading') {
-          if (isForex.value) { initTVChart(); pollFxTick(); }
+          if (isForex.value) { initTVChart(); pollFxTick(); loadTA(); }
           else { initChart(); loadKlines(); loadOrderBook(); loadMexcTrades(); }
         }
         if (v === 'portfolio') loadLedger();
@@ -1095,7 +1126,7 @@ createApp({
     }
 
     watch(pair, () => {
-      if (isForex.value) { initTVChart(); pollFxTick(); }
+      if (isForex.value) { initTVChart(); pollFxTick(); loadTA(); }
       else loadKlines();
     });
 
@@ -1182,6 +1213,7 @@ createApp({
         if (isForex.value) {
           initTVChart();
           pollFxTick();
+          loadTA();
         } else {
           initChart();
           loadKlines();
@@ -1217,6 +1249,7 @@ createApp({
       isForex, sessionLabel, fxSpread, fxBook, systemMode, initTVChart, pollFxTick,
       engineRunning, autoTrade, engineBusy, engineMsg, toggleEngine, toggleAutoTrade, loadEngineStatus,
       chatHistory, chatInput, chatBusy, chatScroll, sendChat,
+      taLevels, loadTA,
       loadKlines,
     };
   }

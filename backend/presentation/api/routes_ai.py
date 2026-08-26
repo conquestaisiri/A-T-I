@@ -372,3 +372,27 @@ async def ai_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     if not reply:
         reply = _fallback_reply(state, payload.message)
     return {"reply": reply, "actions": actions, "state": state}
+
+
+@router.get("/analysis/{symbol}")
+async def ai_analysis(symbol: str, request: Request) -> dict[str, Any]:
+    """AI-drawn TA for a symbol — support/resistance, trend, entry/SL/TP."""
+    from backend.application.ta.annotation_service import compute_levels
+
+    sym = symbol.strip().upper()
+    # Try MT5 bars first (forex), fallback to empty
+    bars: list[dict[str, Any]] = []
+    try:
+        from backend.presentation.api.routes_mt5 import _get_bridge
+
+        bridge = _get_bridge()
+        bars = bridge.get_rates(sym, "H1", 100)
+    except Exception:
+        bars = []
+    result = compute_levels(bars)
+    result["symbol"] = sym
+    # Also include live state for context
+    state = _gather_state(request)
+    result["engine_running"] = state.get("engine_running")
+    result["next_macro"] = state.get("next_macro")
+    return result
