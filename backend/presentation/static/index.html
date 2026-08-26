@@ -313,6 +313,24 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
     </div>
   </div>
 
+  <!-- AI Trade Cards — every proposal as a card with Force -->
+  <div class="c12" v-if="proposals.length">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">AI Signals — Trade Cards</span><span class="pl pl-p">{{proposals.length}} signals</span></div>
+      <div style="padding:6px 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px;max-height:320px;overflow-y:auto">
+        <div v-for="p in proposals.slice(0,12)" :key="p.proposal_id" style="border:1px solid var(--bd);border-radius:6px;padding:8px;background:var(--bg2)">
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+            <span class="pl" :class="decisionPillCls(p)" v-text="decisionText(p)"></span>
+            <span class="mono" style="font-size:10px;color:var(--tx2)" v-text="'conf ' + (p.confidence*100).toFixed(0) + '%'"></span>
+            <span class="mono" style="font-size:9px;color:var(--tx3);margin-left:auto" v-text="timeShort(p.created_at)"></span>
+          </div>
+          <div style="font-size:10px;color:var(--tx2);margin-bottom:6px;min-height:32px" v-text="p.rationale"></div>
+          <button class="btn btn-g" @click="forceTrade(p)" :disabled="busyControl" style="width:100%;font-size:9px;padding:4px">Force Trade (via risk gate)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- KPIs -->
   <div class="c12">
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
@@ -347,6 +365,24 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
         <tr v-for="(p,sym) in positions" :key="sym"><td v-text="sym"></td><td :class="p.side==='buy'?'tg':'tr'" v-text="p.side"></td><td class="n mono" v-text="fmt(p.quantity,6)"></td><td class="n mono" v-text="fmt(p.entry)"></td>
         <td style="text-align:right"><button class="btn btn-g" @click="closePosition(sym)" :disabled="busyControl" style="padding:1px 7px;font-size:9px;color:var(--amb)">CLOSE</button></td></tr>
       </tbody></table></div>
+    </div>
+  </div>
+  <div class="c6">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">Manual Trade</span><span class="pl pl-a">paper</span></div>
+      <div style="padding:8px 10px;display:grid;gap:6px">
+        <div style="display:flex;gap:6px">
+          <select class="sel mono" v-model="manualSymbol" style="flex:1"><option v-for="p in topPairs" :key="p" :value="p" v-text="p"></option></select>
+          <select class="sel" v-model="manualSide" style="width:80px"><option value="buy">BUY</option><option value="sell">SELL</option></select>
+        </div>
+        <div style="display:flex;gap:6px">
+          <input class="in mono" v-model="manualQty" type="number" step="0.01" placeholder="Qty (lots)" style="flex:1">
+          <input class="in mono" v-model="manualSL" type="number" step="0.00001" placeholder="SL (optional)" style="flex:1">
+        </div>
+        <input class="in mono" v-model="manualTP" type="number" step="0.00001" placeholder="TP (optional)">
+        <button class="btn btn-p" @click="manualOpen" :disabled="busyControl" style="width:100%;padding:6px;font-size:11px">OPEN {{manualSide.toUpperCase()}} {{manualSymbol}}</button>
+        <div v-if="manualMsg" class="mono" style="font-size:10px;padding:4px 6px;background:var(--bg0);border-radius:4px" :style="{color: manualMsg.includes('failed') ? 'var(--red)' : 'var(--cyn)'}" v-text="manualMsg"></div>
+      </div>
     </div>
   </div>
 
@@ -390,6 +426,18 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
 
 <!-- ═══ AI BRAIN VIEW ═══ -->
 <div class="v" :class="{on:view==='intel'}">
+  <div class="c12"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Strategy Scoreboard</span><span class="pl pl-b">live</span><button class="btn btn-g" @click="loadStrategyBoard" style="padding:2px 6px;font-size:9px">Refresh</button></div>
+    <div style="padding:6px 10px;display:flex;gap:8px;flex-wrap:wrap">
+      <div v-for="s in strategyBoard" :key="s.id" style="border:1px solid var(--bd);border-radius:6px;padding:8px;min-width:180px;background:var(--bg2)">
+        <div style="font-size:11px;font-weight:700" v-text="s.id"></div>
+        <div class="mono" style="font-size:10px;color:var(--tx2)" v-text="s.trades + ' trades · ' + (s.win_rate*100).toFixed(0) + '% win'"></div>
+        <div class="mono" style="font-size:10px" :class="s.expectancy>0?'tg':'tr'" v-text="'exp ' + s.expectancy.toFixed(2)"></div>
+        <span class="pl" :class="s.status==='leading'?'pl-g':s.status==='demoted'?'pl-r':'pl-a'" v-text="s.status"></span>
+      </div>
+      <div v-if="!strategyBoard.length" class="mono" style="font-size:10px;color:var(--tx3)">No scores yet — paper trading will populate</div>
+    </div>
+  </div></div>
   <div class="c12"><div class="pnl">
     <div class="pnl-h"><span class="pnl-t">AI Decision Stream</span><span class="pl pl-p">Omega Chain · Live</span></div>
     <div class="pnl-b">
@@ -601,6 +649,13 @@ createApp({
     const chatBusy = ref(false);
     const chatScroll = ref(null);
     const taLevels = ref(null);
+    const strategyBoard = ref([]);
+    const manualSymbol = ref('EURUSD');
+    const manualSide = ref('buy');
+    const manualQty = ref('0.10');
+    const manualSL = ref('');
+    const manualTP = ref('');
+    const manualMsg = ref('');
 
     let chart = null, candleSeries = null, volSeries = null;
     let wsMain = null, wsMarket = null;
@@ -1021,6 +1076,12 @@ createApp({
         }
       } catch(e) {}
     }
+    async function loadStrategyBoard() {
+      try {
+        const r = await api.get('/v1/strategy/scoreboard');
+        strategyBoard.value = r.strategies || [];
+      } catch(e) {}
+    }
     // Refresh TA every 60s and on pair change
     setInterval(() => { if (view.value === 'trading') loadTA(); }, 60000);
 
@@ -1050,6 +1111,7 @@ createApp({
           if (isForex.value) { initTVChart(); pollFxTick(); loadTA(); }
           else { initChart(); loadKlines(); loadOrderBook(); loadMexcTrades(); }
         }
+        if (v === 'intel') loadStrategyBoard();
         if (v === 'portfolio') loadLedger();
         if (v === 'forex') { loadMT5(); if (!isForex.value) return; }
         if (v === 'forex' && isForex.value) { /* rates table already polled */ }
@@ -1123,6 +1185,32 @@ createApp({
         chatBusy.value = false;
         nextTick(() => { if (chatScroll.value) chatScroll.value.scrollTop = chatScroll.value.scrollHeight; });
       }
+    }
+
+    async function manualOpen() {
+      manualMsg.value = '';
+      const qty = parseFloat(manualQty.value);
+      if (!qty || qty <= 0) { manualMsg.value = 'Invalid qty'; return; }
+      busyControl.value = true;
+      try {
+        const body = {symbol: manualSymbol.value, side: manualSide.value, volume: qty};
+        if (manualSL.value) body.stop_loss = parseFloat(manualSL.value);
+        if (manualTP.value) body.take_profit = parseFloat(manualTP.value);
+        const r = await api.post('/v1/mt5/order', body);
+        manualMsg.value = `Opened ${r.side} ${r.symbol} @ ${r.price} (ticket ${r.ticket})`;
+        loadLedger(); loadCore(); loadMT5();
+      } catch(e) { manualMsg.value = 'Open failed: ' + e.message; }
+      finally { busyControl.value = false; }
+    }
+    async function forceTrade(p) {
+      busyControl.value = true;
+      try {
+        // Re-drive that symbol at current mid price through the normal pipeline
+        const d = await api.post('/v1/drive', {symbol: p.symbol.toLowerCase(), price: price.value || 1});
+        manualMsg.value = `Forced ${p.symbol}: ${d.risk_verdict}`;
+        loadLedger(); loadCore();
+      } catch(e) { manualMsg.value = 'Force failed: ' + e.message; }
+      finally { busyControl.value = false; }
     }
 
     watch(pair, () => {
@@ -1224,6 +1312,7 @@ createApp({
         loadEvents();
         loadRiskConfig();
         loadPairUniverse();
+        loadStrategyBoard();
         connectWS();
         if (!isForex.value) connectMarketWS();
       });
@@ -1249,7 +1338,8 @@ createApp({
       isForex, sessionLabel, fxSpread, fxBook, systemMode, initTVChart, pollFxTick,
       engineRunning, autoTrade, engineBusy, engineMsg, toggleEngine, toggleAutoTrade, loadEngineStatus,
       chatHistory, chatInput, chatBusy, chatScroll, sendChat,
-      taLevels, loadTA,
+      taLevels, loadTA, strategyBoard, loadStrategyBoard,
+      manualSymbol, manualSide, manualQty, manualSL, manualTP, manualMsg, manualOpen, forceTrade,
       loadKlines,
     };
   }

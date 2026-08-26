@@ -97,6 +97,7 @@ class DecisionPipelineService:
         self._macro_calendar = macro_calendar
         self._event_veto_pre_minutes = max(0, int(event_veto_pre_minutes))
         self._event_veto_post_minutes = max(0, int(event_veto_post_minutes))
+        self._spread_history: dict[str, list[float]] = {}
         from backend.application.execution.execution_policy import (
             build_execution_policy,
         )
@@ -179,8 +180,74 @@ class DecisionPipelineService:
                 record=None,
             )
 
+        # Spread-aware filter: skip when spread is abnormally wide (>1.2x
+        # median for that symbol). In forex, wide spreads eat edge.
+        try:
+            # Simulator exposes fill_engine via order_gateway
+            fill_engine = getattr(self._simulator, "_order_gateway", None) or getattr(
+                self._simulator, "fill_engine", None
+            )
+            if fill_engine is not None and hasattr(fill_engine, "book"):
+                spread = float(fill_engine.book.spread)
+                hist = self._spread_history.setdefault(symbol, [])
+                if len(hist) >= 20:
+                    median = sorted(hist)[len(hist) // 2]
+                    if median > 0 and spread > median * 1.2:
+                        logger.info(
+                            "Spread filter (%s): spread %.5f > 1.2x median %.5f -- skip",
+                            symbol,
+                            spread,
+                            median,
+                        )
+                        return SimulationStep(
+                            proposal_id=f"spread-veto-{symbol}",
+                            result=SimulationResult.NO_ACTION,
+                            risk_verdict=f"spread_filter:{spread:.5f}",
+                            report=None,
+                            position=None,
+                            record=None,
+                        )
+                hist.append(spread)
+                if len(hist) > 100:
+                    hist.pop(0)
+        except Exception:
+            pass
+
         risk = self._simulator.risk_snapshot(symbol=symbol)
         proposal = self._reasoner.reason(context, risk)
+        # Confidence-scaled sizing: high conviction gets more size (within caps)
+        try:
+            if proposal.actions:
+                base = float(proposal.actions[0].size_fraction)
+                scaled = min(1.0, base * (0.5 + float(proposal.confidence)))
+                if abs(scaled - base) > 1e-9:
+                    from backend.domain.decision.proposal import ProposedAction
+
+                    new_action = ProposedAction(
+                        action_type=proposal.actions[0].action_type,
+                        size_fraction=max(0.01, scaled),
+                        order=proposal.actions[0].order,
+                        rationale=proposal.actions[0].rationale
+                        + f" [scaled {base:.2f}->{scaled:.2f} by conf {proposal.confidence:.2f}]",
+                    )
+                    # Rebuild proposal with scaled action (frozen dataclass)
+                    proposal = DecisionProposal(
+                        proposal_id=proposal.proposal_id,
+                        correlation_id=proposal.correlation_id,
+                        created_at=proposal.created_at,
+                        symbol=proposal.symbol,
+                        hypothesis=proposal.hypothesis,
+                        confidence=proposal.confidence,
+                        uncertainty=proposal.uncertainty,
+                        actions=(new_action,) + tuple(proposal.actions[1:]),
+                        risk_context=proposal.risk_context,
+                        alternatives=proposal.alternatives,
+                        rationale=proposal.rationale,
+                        pre_trade_plan=proposal.pre_trade_plan,
+                        post_trade_plan=proposal.post_trade_plan,
+                    )
+        except Exception:
+            pass
         self._persist_proposal(proposal)
         step = self._simulator.process(proposal, mark_price)
         self._feed_impact_fill(proposal.symbol, step)

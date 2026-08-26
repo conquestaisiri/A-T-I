@@ -16,7 +16,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Request, Security
+from fastapi import APIRouter, HTTPException, Request, Security
 from pydantic import BaseModel, Field
 
 from backend.presentation.api.auth import verify_api_key
@@ -396,3 +396,15 @@ async def ai_analysis(symbol: str, request: Request) -> dict[str, Any]:
     result["engine_running"] = state.get("engine_running")
     result["next_macro"] = state.get("next_macro")
     return result
+
+
+@router.post("/regret-review")
+async def regret_review(request: Request) -> dict[str, Any]:
+    """Nightly regret journal — reviews losers and writes lessons."""
+    ledger = getattr(request.app.state, "ledger_repository", None)
+    memory = getattr(request.app.state, "memory_store", None)
+    if ledger is None:
+        raise HTTPException(status_code=503, detail="Ledger not initialized")
+    from backend.application.reflection.regret_journal import nightly_review
+
+    return nightly_review(ledger, memory)
