@@ -687,10 +687,35 @@ class SmartFallbackReasoner(AIReasoner):
                 "Model advised holding (no directional edge); mapped to stand_aside.",
             )
         action_type = ProposedActionType(str(parsed["action_type"]))
-        size_fraction = float(parsed.get("size_fraction", 0.10))
-        confidence = float(parsed["confidence"])
-        if not 0.0 < confidence <= 1.0:
-            raise ValueError("LLM returned confidence outside (0, 1]")
+        # LLMs emit size as "10", "0.5x", "50%", 1.5, or omit it. Clamp into
+        # the legal band instead of letting one bad number kill the provider
+        # chain (same discipline as the hold->stand_aside mapping).
+        raw_size = parsed.get("size_fraction", 0.10)
+        try:
+            size_fraction = float(raw_size)
+        except (TypeError, ValueError):
+            size_fraction = 0.10
+        if "%" in str(raw_size):
+            size_fraction /= 100.0
+        if (
+            action_type
+            in (
+                ProposedActionType.STAND_ASIDE,
+                ProposedActionType.EXIT,
+                ProposedActionType.REDUCE_RISK,
+            )
+            or size_fraction > 1.0
+        ):
+            size_fraction = min(max(size_fraction, 0.01), 1.0)
+        if size_fraction <= 0.0:
+            size_fraction = 0.10
+        try:
+            confidence = float(parsed["confidence"])
+        except (TypeError, ValueError):
+            confidence = 0.5
+        if confidence > 1.0:
+            confidence /= 100.0
+        confidence = min(max(confidence, 0.01), 0.99)
         alternatives = _alternatives(parsed.get("alternatives"))
         symbol = context.snapshot.symbol
         created_at = self._clock()
