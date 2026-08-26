@@ -218,8 +218,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # off keeps the suite and backtests deterministic.
     market_loop = None
     market_tasks: list[asyncio.Task[Any]] = []
-    # Live MEXC price poller feeds /ws and /ws/market regardless of CCXT config.
-    market_tasks.append(asyncio.create_task(_mexc_price_poller()))
+    _mode = settings.trading_mode.strip().lower()
+    _crypto_active = _mode in ("crypto", "both")
+    _forex_active = _mode in ("forex", "both")
+    # Live MEXC price poller feeds /ws and /ws/market in crypto/both modes.
+    if _crypto_active:
+        market_tasks.append(asyncio.create_task(_mexc_price_poller()))
     if settings.ff_enabled:
         from backend.application.pipeline.macro_calendar_service import (
             MacroCalendarService,
@@ -242,7 +246,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.event_veto_pre_minutes,
             settings.event_veto_post_minutes,
         )
-    if settings.ccxt_enabled and settings.ccxt_sandbox:
+    if settings.ccxt_enabled and settings.ccxt_sandbox and _crypto_active:
         try:
             from pydantic import SecretStr as _SecretStr
 
@@ -304,7 +308,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _mt5_login = settings.mt5_login
         _mt5_password = settings.mt5_password
         _mt5_server = settings.mt5_server
-        if _mt5_login and _mt5_password and _mt5_server:
+        _fx_symbols = tuple(
+            s.strip().upper() for s in settings.forex_symbols.split(",") if s.strip()
+        )
+        if not _forex_active:
+            logger.info("Trading mode %s — MT5 adapter disabled", _mode)
+        elif not (_mt5_login and _mt5_password and _mt5_server):
+            logger.info("MT5 credentials incomplete — adapter disabled at startup")
+        else:
             _mt5_bridge = MT5Bridge(
                 MT5Credentials(
                     login=int(_mt5_login),
@@ -315,7 +326,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             _mt5_adapter = MT5ObservationAdapter(
                 event_bus=observation_bus,
                 bridge=_mt5_bridge,
-                symbols=tuple(settings.forex_symbols.split(",")),
+                symbols=_fx_symbols,
+                symbol_prefix=settings.mt5_symbol_prefix,
             )
             market_tasks.append(_mt5_adapter.start())
             app.state.mt5_adapter = _mt5_adapter
@@ -323,8 +335,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "MT5 observation adapter enabled: symbols=%s",
                 settings.forex_symbols,
             )
-        else:
-            logger.info("MT5 credentials incomplete — adapter disabled at startup")
     except Exception:  # noqa: BLE001 — a failed MT5 init must never block the API
         logger.exception("MT5 observation adapter init failed; continuing without it")
         app.state.mt5_adapter = None

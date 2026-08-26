@@ -14,40 +14,61 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import math
 import time as _time
+from datetime import UTC, datetime
 from typing import Any
 
-from backend.infrastructure.execution.mt5.bridge import MT5Bridge
+from backend.domain.macro.event import currencies_for_symbol
+from backend.domain.observation.event import ObservationEvent, ObservationEventType
 
 
-async def _mt5_tick_event(bridge: MT5Bridge, symbol: str) -> dict[str, Any] | None:
-    """Build a TICKER observation from the latest MT5 tick for *symbol*."""
-    tick: dict[str, Any] | None = bridge.get_tick(symbol)
+def _observation(event_type: ObservationEventType, payload: dict[str, Any]) -> ObservationEvent:
+    return ObservationEvent(
+        source_id="mt5",
+        source_name="MetaTrader 5",
+        event_type=event_type,
+        timestamp=datetime.now(UTC),
+        payload=payload,
+    )
+
+
+async def _mt5_tick_event(bridge: Any, broker_symbol: str, canonical: str) -> dict[str, Any] | None:
+    """Build a TICKER observation from the latest MT5 tick."""
+    tick: dict[str, Any] | None = bridge.get_tick(broker_symbol)
     if tick is None:
         return None
-    mid = (tick.get("bid", 0) + tick.get("ask", 0)) / 2
+    bid = float(tick.get("bid") or 0.0)
+    ask = float(tick.get("ask") or 0.0)
+    mid = (bid + ask) / 2 if (bid and ask) else float(tick.get("last") or 0.0)
+    if mid <= 0:
+        return None
     return {
-        "symbol": symbol,
-        "bid": tick.get("bid"),
-        "ask": tick.get("ask"),
+        "symbol": canonical,
+        "bid": bid or None,
+        "ask": ask or None,
         "last": mid,
-        "volume": tick.get("volume", 0.0),
+        "volume": float(tick.get("volume") or 0.0),
+        "currencies": sorted(currencies_for_symbol(canonical)),
     }
 
 
-async def _mt5_trade_event(bridge: MT5Bridge, symbol: str) -> dict[str, Any] | None:
-    """Build a TRADE observation from the latest rate bar for *symbol*."""
-    rates: list[dict[str, Any]] | None = bridge.get_rates(symbol, "M1", 1)
+async def _mt5_trade_event(
+    bridge: Any, broker_symbol: str, canonical: str
+) -> dict[str, Any] | None:
+    """Build a TRADE observation from the latest rate bar."""
+    rates: list[dict[str, Any]] | None = bridge.get_rates(broker_symbol, "M1", 1)
     if not rates:
         return None
     r = rates[0]
-    mid = (r.get("bid", 0) + r.get("ask", 0)) / 2
+    price = float(r.get("close") or 0.0)
+    if price <= 0:
+        return None
     return {
-        "symbol": symbol,
-        "trade_id": f"mt5-{symbol}-{_time.time()}",
-        "price": mid,
-        "quantity": r.get("volume", 1.0),
+        "symbol": canonical,
+        "trade_id": f"mt5-{canonical}-{_time.time()}",
+        "price": price,
+        "quantity": float(r.get("volume") or 1.0),
+        "currencies": sorted(currencies_for_symbol(canonical)),
     }
 
 
@@ -72,26 +93,56 @@ class MT5ObservationAdapter:
     def __init__(
         self,
         event_bus: Any,
-        bridge: MT5Bridge,
+        bridge: Any,
         symbols: tuple[str, ...] = ("EURUSD", "GBPUSD", "AUDUSD"),
         tick_interval: float = 2.0,
         rate_interval: float = 15.0,
+        symbol_prefix: str = "",
     ) -> None:
         self._bus = event_bus
         self._bridge = bridge
-        self._symbols = symbols
+        # Canonical (prefix-free) symbols travel in payloads so downstream
+        # consumers (currency veto mapping, UI) never see broker quirks.
+        self._symbols: tuple[str, ...] = tuple(s.strip().upper() for s in symbols)
         self._tick_interval = tick_interval
         self._rate_interval = rate_interval
+        self._prefix = symbol_prefix
         self._task: asyncio.Task[None] | None = None
 
-    def start(self) -> asyncio.Task[None]:
-        """Spawn the dual-rate publisher loop and return its task.
+    def _broker_symbol(self, canonical: str) -> str:
+        return f"{self._prefix}{canonical}" if self._prefix else canonical
 
-        Returning the task lets the composition root (lifespan) track it for
-        ordered cancellation at shutdown, alongside the other market tasks.
-        """
+    def start(self) -> asyncio.Task[None]:
+        """Spawn the dual-rate publisher loop; task returned for lifespan tracking."""
         self._task = asyncio.create_task(self._run())
         return self._task
+
+    async def poll_once(self, *, include_rates: bool = True) -> int:
+        """One sweep: tick for every symbol, plus M1 bar when due.
+
+        Returns the number of observations published. Exposed for tests so the
+        sweep runs hermetically against a stub bridge without the sleep loop.
+        """
+        published = 0
+        for canonical in self._symbols:
+            broker = self._broker_symbol(canonical)
+            try:
+                payload = await _mt5_tick_event(self._bridge, broker, canonical)
+                if payload is not None:
+                    await self._bus.publish(_observation(ObservationEventType.TICKER, payload))
+                    published += 1
+            except Exception:  # noqa: BLE001 — one symbol must not stall the bus
+                continue
+            if not include_rates:
+                continue
+            try:
+                payload = await _mt5_trade_event(self._bridge, broker, canonical)
+                if payload is not None:
+                    await self._bus.publish(_observation(ObservationEventType.TRADE, payload))
+                    published += 1
+            except Exception:  # noqa: BLE001 — one symbol must not stall the bus
+                continue
+        return published
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -101,29 +152,19 @@ class MT5ObservationAdapter:
             self._task = None
 
     async def _run(self) -> None:
-        tick_cycle = 0
-        rate_cycle = 0
+        """Dual-rate loop: ticks every ``tick_interval``, bars every ``rate_interval``."""
         while True:
-            # --- TICK polls (high frequency, lightweight) ---
-            tick_cycle += 1
-            if tick_cycle % max(1, math.ceil(60 / self._tick_interval)) == 0:
-                for sym in self._symbols:
-                    try:
-                        ev = await _mt5_tick_event(self._bridge, sym)
-                        if ev is not None:
-                            await self._bus.publish(ev)
-                    except Exception:  # noqa: BLE001 — one symbol must not stall the bus
-                        pass
-
-            # --- RATE-bar polls (lower frequency, full bar) ---
-            rate_cycle += 1
-            if rate_cycle % max(1, math.ceil(60 / self._rate_interval)) == 0:
-                for sym in self._symbols:
-                    try:
-                        ev = await _mt5_trade_event(self._bridge, sym)
-                        if ev is not None:
-                            await self._bus.publish(ev)
-                    except Exception:  # noqa: BLE001 — one symbol must not stall the bus
-                        pass
-
+            rate_due = self._is_rate_due()
+            await self.poll_once(include_rates=rate_due)
             await asyncio.sleep(min(self._tick_interval, self._rate_interval))
+
+    def _is_rate_due(self) -> bool:
+        """Rate sweep runs every ``rate_interval`` seconds of wall clock."""
+        now = _time.monotonic()
+        if getattr(self, "_last_rate_sweep", 0.0) == 0.0:
+            self._last_rate_sweep = now
+            return True
+        if now - self._last_rate_sweep >= self._rate_interval:
+            self._last_rate_sweep = now
+            return True
+        return False

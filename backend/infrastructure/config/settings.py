@@ -78,11 +78,19 @@ class Settings(BaseSettings):
     mt5_data_folder: str | None = None
 
     # Market-data symbols / channels (comma-separated in .env) ---------------
+    # trading_mode picks the active book: "forex" (MT5-only, operator default),
+    # "crypto" (legacy MEXC/CCXT stack), or "both".
+    trading_mode: str = "forex"
     crypto_symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT"
     crypto_channels: str = "trade,ticker,book,candle"
     forex_symbols: str = (
-        "frxEURUSD,frxGBPUSD,frxUSDJPY,frxAUDUSD,frxUSDCAD,frxNZDUSD,frxEURGBP,frxEURJPY,frxGBPJPY"
+        "EURUSD,GBPUSD,USDJPY,USDCHF,AUDUSD,USDCAD,NZDUSD,"
+        "EURGBP,EURJPY,EURCHF,EURAUD,EURCAD,EURNZD,"
+        "GBPJPY,GBPCHF,GBPAUD,GBPCAD,GBPNZD,"
+        "AUDJPY,AUDCHF,AUDCAD,AUDNZD,"
+        "NZDJPY,NZDCAD,NZDCHF,CADJPY,CADCHF,CHFJPY,XAUUSD"
     )
+    mt5_symbol_prefix: str = ""
     deriv_symbols: str = (
         "frxEURUSD,frxGBPUSD,frxUSDJPY,frxAUDUSD,frxUSDCAD,frxNZDUSD,frxEURGBP,"
         "frxEURJPY,frxGBPJPY,R_10,R_25,R_50,R_75,R_100,cryBTCUSD,cryETHUSD"

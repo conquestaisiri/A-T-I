@@ -61,6 +61,24 @@ def _simulator(request: Request) -> PaperTradingSimulator:
     return cast(PaperTradingSimulator, sim)
 
 
+@router.get("/system")
+async def get_system_info(request: Request) -> dict[str, Any]:
+    """Active trading mode + feature flags the dashboard boot sequence needs."""
+    from backend.infrastructure.config.settings import settings as app_settings
+
+    return {
+        "mode": app_settings.trading_mode.strip().lower(),
+        "paper_mode": bool(app_settings.paper_mode),
+        "ff_enabled": bool(app_settings.ff_enabled),
+        "forex_symbols": [
+            s.strip().upper() for s in app_settings.forex_symbols.split(",") if s.strip()
+        ],
+        "crypto_symbols": [
+            s.strip().upper() for s in app_settings.crypto_symbols.split(",") if s.strip()
+        ],
+    }
+
+
 @router.get("/risk-config")
 async def get_risk_config(request: Request) -> dict[str, Any]:
     """Current active risk limits."""

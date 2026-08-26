@@ -186,7 +186,8 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
   <div class="top-sep"></div>
   <span class="top-price" :class="priceDir" v-text="priceFmt"></span>
   <span class="top-chg" :class="priceDir" v-text="priceChg"></span>
-  <span v-if="priceStale" class="pl pl-r pd">STALE FEED</span>
+    <span v-if="priceStale" class="pl pl-r pd">STALE FEED</span>
+    <span class="pl pl-b mono" v-text="sessionLabel"></span>
   <div class="top-right" style="margin-left:auto">
     <div class="ws-ind"><span class="ws-dot" :class="wsConnected ? 'on' : 'off'"></span><span v-text="wsConnected ? 'LIVE' : 'OFF'"></span></div>
     <span class="top-pill" :class="paperMode ? 'pl-a' : 'pl-r'" style="background:var(--amb2);color:var(--amb);border:1px solid rgba(255,184,32,.3)" v-text="paperMode ? 'PAPER' : 'LIVE'"></span>
@@ -236,29 +237,39 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
 <div class="v" :class="{on:view==='trading'}">
   <!-- Pair selector + timeframe -->
   <div class="c12" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0">
-    <select class="sel mono" v-model="pair" @change="loadKlines" style="width:150px;font-weight:600">
-      <option v-for="p in topPairs" :key="p" :value="p" v-text="p.replace('USDT','/USDT')"></option>
+    <select class="sel mono" v-model="pair" @change="isForex ? initTVChart() : loadKlines()" style="width:150px;font-weight:600">
+      <option v-for="p in topPairs" :key="p" :value="p" v-text="isForex ? p : p.replace('USDT','/USDT')"></option>
     </select>
-    <input class="in" v-model="pairSearch" @keyup.enter="selectSearchPair()" placeholder="Search all pairs, Enter to load…" style="width:200px">
+    <input class="in" v-model="pairSearch" @keyup.enter="selectSearchPair()" placeholder="Search pairs, Enter to load…" style="width:200px">
     <button class="btn btn-g" @click="selectSearchPair()" style="padding:3px 8px;font-size:10px">GO</button>
     <span class="pl pl-gy" v-if="allPairs.length" v-text="allPairs.length + ' pairs'"></span>
     <div style="display:flex;gap:2px">
       <button v-for="tf in timeframes" :key="tf" class="btn btn-g" :class="{active:timeframe===tf}"
-        @click="timeframe=tf;loadKlines()" style="padding:3px 8px;font-size:10px" v-text="tf"></button>
+        @click="timeframe=tf; isForex ? initTVChart() : loadKlines()" style="padding:3px 8px;font-size:10px" v-text="tf"></button>
     </div>
-    <span class="pl pl-c">MEXC Live</span>
+    <span class="pl pl-c" v-text="isForex ? 'MT5 Forex' : 'MEXC Live'"></span>
   </div>
 
-  <!-- Candlestick Chart -->
+  <!-- Candlestick / TradingView Chart -->
   <div class="c8">
-    <div class="pnl"><div style="position:relative;height:380px" ref="chartEl"></div></div>
+    <div class="pnl"><div style="position:relative;height:380px">
+      <div ref="chartEl" v-show="!isForex" style="position:absolute;inset:0"></div>
+      <div id="tv_chart" v-show="isForex" style="position:absolute;inset:0"></div>
+    </div></div>
   </div>
 
   <!-- Order Book + AI -->
   <div class="c4" style="display:grid;gap:8px;grid-template-rows:auto 1fr">
     <div class="pnl">
-      <div class="pnl-h"><span class="pnl-t">Order Book</span><span class="pl pl-c">MEXC</span></div>
-      <div style="padding:2px 0" v-html="orderBookHtml"></div>
+      <div class="pnl-h"><span class="pnl-t" v-text="isForex ? 'Top of Book' : 'Order Book'"></span><span class="pl pl-c" v-text="isForex ? 'MT5' : 'MEXC'"></span></div>
+      <div style="padding:2px 0">
+        <div v-if="isForex" style="padding:6px 10px;font-family:var(--fm);font-size:11px">
+          <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:var(--tr)">BID</span><span class="mono tr" v-text="fxBook.bid ?? '—'"></span></div>
+          <div class="ob-mid">spread <span v-text="fxSpread ?? '—'"></span></div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:var(--tg)">ASK</span><span class="mono tg" v-text="fxBook.ask ?? '—'"></span></div>
+        </div>
+        <div v-else v-html="orderBookHtml"></div>
+      </div>
     </div>
     <div class="pnl">
       <div class="pnl-h"><span class="pnl-t">AI Decision</span><span class="pl pl-p">Omega</span></div>
@@ -293,8 +304,8 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
     </div>
   </div>
 
-  <!-- Trade Tape + Positions -->
-  <div class="c6">
+  <!-- Trade Tape (crypto only — MT5 exposes no retail tape) -->
+  <div class="c6" v-show="!isForex">
     <div class="pnl">
       <div class="pnl-h"><span class="pnl-t">Trade Tape</span><span class="pl pl-c">MEXC Live</span></div>
       <div class="tsc"><table class="tb"><thead><tr><th class="n">Price</th><th class="n">Qty</th><th>Side</th><th>Time</th></tr></thead><tbody>
@@ -542,12 +553,29 @@ createApp({
     const riskConfig = ref({});
     const busyControl = ref(false);
     const controlMsg = ref('');
+    const systemMode = ref('crypto');
+    const systemSymbols = ref([]);
+    const fxSpread = ref(null);
+    const fxBook = ref({bid:null, ask:null});
+    const sessionLabel = ref('');
 
     let chart = null, candleSeries = null, volSeries = null;
     let wsMain = null, wsMarket = null;
 
     // ═══ COMPUTED ═══
-    const topPairs = computed(() => ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','DOGEUSDT']);
+    const isForex = computed(() => systemMode.value === 'forex');
+    const displayTopPairs = computed(() => isForex.value
+      ? ['EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD']
+      : ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','DOGEUSDT']);
+    function _sessionForHour(h) {
+      if (h >= 13 && h < 16) return 'LDN·NY OVERLAP';
+      if (h >= 8 && h < 13) return 'LONDON';
+      if (h >= 16 && h < 21) return 'NEW YORK';
+      if (h >= 0 && h < 8) return 'ASIA';
+      return 'SYDNEY';
+    }
+    setInterval(() => { sessionLabel.value = _sessionForHour(new Date().getUTCHours()); }, 1000);
+    const topPairs = computed(() => displayTopPairs.value);
     const totalPnl = computed(() => realizedPnl.value + unrealPnl.value);
     const unrealPnl = computed(() => {
       let pnl = 0;
@@ -823,6 +851,7 @@ createApp({
     }
 
     async function loadPairUniverse() {
+      if (isForex.value) return; // universe already loaded from /v1/operator/system
       try {
         const resp = await api.get('/v1/market/pairs');
         allPairs.value = resp.pairs || [];
@@ -835,7 +864,12 @@ createApp({
       const match = allPairs.value.find(p => p === q)
         || allPairs.value.find(p => p === q + 'USDT')
         || allPairs.value.find(p => p.startsWith(q));
-      if (match) { pair.value = match; pairSearch.value = ''; loadKlines(); }
+      if (match) {
+        pair.value = match;
+        pairSearch.value = '';
+        if (isForex.value) { initTVChart(); pollFxTick(); }
+        else loadKlines();
+      }
     }
 
     async function loadMT5Positions() {
@@ -849,6 +883,66 @@ createApp({
     }
 
     // ═══ CHART ═══
+    let tvWidgetReady = false;
+    const TV_INTERVALS = {'15m':'15','60m':'60','4h':'240','1d':'D'};
+
+    function loadTVScript(cb) {
+      if (window.TradingView) { cb(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://s3.tradingview.com/tv.js';
+      s.onload = cb;
+      document.head.appendChild(s);
+    }
+
+    function initTVChart() {
+      const host = document.getElementById('tv_chart');
+      if (!host) return;
+      loadTVScript(() => {
+        if (!window.TradingView) return;
+        tvWidgetReady = true;
+        // Free embeddable widget: legitimate TradingView visuals while the
+        // trading pipeline runs on MT5 broker prices.
+        new TradingView.widget({
+          container_id: 'tv_chart',
+          symbol: 'OANDA:' + (pair.value || 'EURUSD'),
+          interval: TV_INTERVALS[timeframe.value] || '60',
+          autosize: true,
+          theme: 'dark',
+          style: '1',
+          timezone: 'Etc/UTC',
+          hide_side_toolbar: true,
+          allow_symbol_change: false,
+          withdateranges: false,
+          save_image: false,
+          backgroundColor: '#0a0f1a',
+          gridColor: '#141d30',
+        });
+      });
+    }
+
+    let fxFailCount = 0;
+    async function pollFxTick() {
+      try {
+        const t = await api.get('/v1/mt5/tick/' + pair.value);
+        const bid = Number(t.bid), ask = Number(t.ask);
+        const mid = bid && ask ? (bid + ask) / 2 : Number(t.last);
+        if (!mid || mid <= 0) throw new Error('no price');
+        prevPrice.value = price.value;
+        price.value = mid;
+        priceFmt.value = fmt(mid);
+        priceDir.value = prevPrice.value != null ? (mid >= prevPrice.value ? 'up' : 'down') : '';
+        fxSpread.value = bid && ask ? fmt(ask - bid, 5) : null;
+        fxBook.value = {bid: bid ? fmt(bid, 5) : null, ask: ask ? fmt(ask, 5) : null};
+        priceStale.value = false;
+        fxFailCount = 0;
+      } catch (e) {
+        if (++fxFailCount >= 4) priceStale.value = true;
+      }
+    }
+    setInterval(() => {
+      if (isForex.value && view.value === 'trading') pollFxTick();
+    }, 1500);
+
     function initChart() {
       if (chart || !chartEl.value || typeof LightweightCharts === 'undefined') return;
       chart = LightweightCharts.createChart(chartEl.value, {
@@ -871,13 +965,29 @@ createApp({
     // ═══ VIEW WATCHER ═══
     watch(view, (v) => {
       nextTick(() => {
-        if (v === 'trading') { initChart(); loadKlines(); loadOrderBook(); loadMexcTrades(); }
+        if (v === 'trading') {
+          if (isForex.value) { initTVChart(); pollFxTick(); }
+          else { initChart(); loadKlines(); loadOrderBook(); loadMexcTrades(); }
+        }
         if (v === 'portfolio') loadLedger();
-        if (v === 'forex') loadMT5();
+        if (v === 'forex') { loadMT5(); if (!isForex.value) return; }
+        if (v === 'forex' && isForex.value) { /* rates table already polled */ }
       });
     });
 
-    watch(pair, () => { loadKlines(); });
+    async function loadSystem() {
+      try {
+        const s = await api.get('/v1/operator/system');
+        systemMode.value = (s.mode || 'crypto').toLowerCase();
+        systemSymbols.value = s.forex_symbols || [];
+        if (isForex.value) allPairs.value = systemSymbols.value;
+      } catch (e) {}
+    }
+
+    watch(pair, () => {
+      if (isForex.value) { initTVChart(); pollFxTick(); }
+      else loadKlines();
+    });
 
     // ═══ WEBSOCKET ═══
     function connectWS() {
@@ -956,17 +1066,23 @@ createApp({
 
     // ═══ MOUNTED ═══
     onMounted(() => {
-      nextTick(() => {
-        initChart();
-        loadKlines();
-        loadOrderBook();
-        loadMexcTrades();
+      nextTick(async () => {
+        await loadSystem();
+        if (isForex.value) {
+          initTVChart();
+          pollFxTick();
+        } else {
+          initChart();
+          loadKlines();
+          loadOrderBook();
+          loadMexcTrades();
+        }
         loadCore();
         loadEvents();
         loadRiskConfig();
         loadPairUniverse();
         connectWS();
-        connectMarketWS();
+        if (!isForex.value) connectMarketWS();
       });
     });
 
@@ -987,6 +1103,7 @@ createApp({
       busyControl, controlMsg, killSwitch, releaseSwitch,
       closePosition, flattenAll, saveRiskConfig, loadRiskConfig, events,
       selectSearchPair,
+      isForex, sessionLabel, fxSpread, fxBook, systemMode, initTVChart, pollFxTick,
       loadKlines,
     };
   }
