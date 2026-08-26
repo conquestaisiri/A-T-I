@@ -1,0 +1,868 @@
+# ATI Dynamic Engineering Task Queue
+# The agent must read this file at every session start.
+# Status values: BLOCKED / READY / IN_PROGRESS / DONE / REJECTED
+# Priority: P0 > P1 > P2 > P3 > P4
+
+version: "1.0"
+last_reviewed: "2026-08-13"
+
+# Standing context (read these before any architectural work):
+#   docs/ATI_Architecture_Critique.md   — primary external critique (evidence gap)
+#   docs/ATI_Strategic_Review.md        — second external review (42/100, research-institution direction)
+#   docs/ATI_Strategic_Alignment.md     — chief architect's mapping of that review onto repo reality + next priorities
+
+rules:
+  never_enable_live_trading: true
+  never_bypass_risk_gate: true
+  never_modify_risk_from_learning: true
+  never_claim_profitability_without_evidence: true
+  unlisted_features_default_enabled: false
+  failed_research_must_be_preserved: true
+  every_done_task_requires_tests: true
+  every_architecture_change_requires_adr: true
+
+phases:
+  P0:
+    name: "Correctness and Safety"
+    goal: "Make existing behavior truthful, deterministic, safe and reproducible."
+  P1:
+    name: "Research Truth"
+    goal: "Create a causally correct research and validation system."
+  P2:
+    name: "Execution Truth"
+    goal: "Make paper/live execution economics realistic and measurable."
+  P3:
+    name: "Decision Intelligence"
+    goal: "Improve market understanding, scenario reasoning and strategy selection."
+  P4:
+    name: "Controlled Autonomy"
+    goal: "Allow bounded autonomous evolution only after evidence."
+
+tasks:
+
+  - id: P0-001
+    title: "Complete dependency manifest"
+    priority: P0
+    status: DONE
+    paths:
+      - requirements.txt
+      - requirements-dev.txt
+      - requirements-ai.txt
+      - requirements-ml.txt
+      - requirements-research.txt
+      - requirements-data.txt
+      - requirements-venue.txt
+      - requirements-all.txt
+      - docs/ATI_DEPENDENCY_MANIFEST.md
+      - backend/application/context/bootstrap.py
+      - backend/application/ai/__init__.py
+      - backend/domain/context/features/sentiment.py
+      - backend/domain/context/features/insider.py
+      - tests/integrity/test_dependency_manifest.py
+    acceptance:
+      - "All imported third-party packages are declared in an appropriate dependency group."
+      - "Fresh environment can install the core profile."
+      - "Core test suite imports without undeclared optional packages."
+      - "Optional heavy integrations remain optional where architecturally appropriate."
+    result: "Implemented. Core profile = fastapi+uvicorn+pydantic+pydantic-settings+python-dotenv+websockets+pyyaml+httpx+numpy. Heavy integrations (torch/transformers/cvxpy/riskfolio/pandas/edgar/pydantic-ai/ccxt) are optional groups with lazy imports in bootstrap.py and TYPE_CHECKING guards in feature modules. Import smoke test validates core loads without optional packages."
+    tests: "tests/integrity/test_dependency_manifest.py (3 tests: manifest coverage, core lightweight, import smoke). Full suite: 306 passed. mypy clean (121 files). 7 pre-existing ruff errors unchanged."
+    blockers: []
+    do_not: "Do not simply add every research package to the core requirements."
+    completed_at: "2026-08-11"
+
+  - id: P0-002
+    title: "Fix regime detector price source"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/domain/context/features/regime.py
+      - backend/application/regime/regime_detector.py
+      - tests/unit/test_regime.py
+    acceptance:
+      - "Regime detector consumes real price data."
+      - "Timestamp cannot masquerade as price."
+      - "Historical replay is deterministic."
+      - "Hand-calculated price-return tests pass."
+    result: "Feature now feeds the last real price extracted from snapshot events into the detector via extract_prices(). Invalid (non-positive) prices no longer corrupt detector state. Snapshot with no price events falls back to detector.snapshot() instead of fabricating a price."
+    tests: "9 new tests in tests/unit/test_regime.py; full suite 315 passed; mypy clean; ruff clean on changed files."
+    completed_at: "2026-08-11"
+    blockers: []
+
+  - id: P0-003
+    title: "Make feature configuration explicit"
+    priority: P0
+    status: DONE
+    paths:
+      - config/context.yaml
+      - backend/infrastructure/config/context_loader.py
+      - backend/application/interfaces/context_settings.py
+      - backend/domain/context/features/__init__.py
+      - tests/unit/test_context_loader.py
+    acceptance:
+      - "Every registered feature is explicitly configured."
+      - "Unknown/unlisted features do not silently activate."
+      - "Experimental features can be disabled by default."
+      - "Configuration validation covers all feature-specific parameters."
+    result: "Loader is now schema-driven and derived from the domain registry: KNOWN_FEATURES comes from ALL_FEATURES, so config can never drift from the features the engine runs. _parse_features requires every registered feature to be explicitly configured (missing -> ConfigurationError), rejects unknown feature names, and validates every parameter against the declarative FEATURE_PARAMETER_SCHEMAS (int/float/str kinds with bounds) in features/__init__.py. context.yaml now declares all 10 registered features explicitly; the 5 newer/experimental ones (sentiment, insider, order_flow, micro_price, regime) default to enabled:false. ContextSettings.is_feature_enabled already defaulted unlisted->disabled (defense in depth)."
+    tests: "tests/unit/test_context_loader.py rewritten+expanded (14 tests: default config declares all features, experimental features disabled by default, missing registered feature, unknown feature name, unknown param on new feature, invalid param type, zero lookback, empty string param, non-bool enabled, valid full config). Full suite: 339 passed. mypy clean on changed files. ruff clean on changed files (7 pre-existing errors elsewhere unchanged)."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-004
+    title: "Create canonical observation enrichment path"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/pipeline/context_pipeline_service.py
+      - backend/application/pipeline/observation_enrichment.py
+      - backend/domain/context/features/micro_price.py
+      - backend/domain/context/features/order_flow.py
+      - backend/application/context/bootstrap.py
+      - backend/application/validation/tick_recorder.py
+    acceptance:
+      - "Order-book events update micro-price state."
+      - "Order-book deltas update OFI."
+      - "L2 delta events reach the recorder."
+      - "No feature depends on an undocumented external caller."
+      - "Integration test proves end-to-end enrichment."
+    result: "New ObservationEnrichment component (application/pipeline/observation_enrichment.py) is the single explicit event-to-state path (audit §19). ContextPipelineService._handle now calls enrichment.enrich(event) before building context: ORDER_BOOK snapshots update micro-price state, L2 delta events update OFI and reach the tick recorder. bootstrap wires it via build_observation_enrichment() and build_context_pipeline_service(); reset_observation_enrichment_state() + micro_price.reset_state() keep replays deterministic (ADR 0007). Symbol keys normalized to uppercase in micro_price/order_flow so feature reads match enrichment writes."
+    tests: "5 new tests in tests/application/test_context_pipeline_service.py (snapshot->micro-price, delta->OFI+recorder, non-book ignored, end-to-end warm micro-price in built context). Full suite: 319 passed. mypy clean (122 files). ruff clean."
+    completed_at: "2026-08-11"
+    blockers:
+      - "P0-003"
+
+  - id: P0-005
+    title: "Correct order-book delta and OFI semantics"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/infrastructure/observation/ccxt_adapter.py
+      - backend/domain/context/features/order_flow.py
+      - backend/application/pipeline/observation_enrichment.py
+      - backend/application/validation/tick_recorder.py
+      - tests/unit/test_order_flow.py
+      - tests/unit/test_ccxt_adapter.py
+    acceptance:
+      - "Price levels are correctly identified."
+      - "Old/new size is available when calculating delta."
+      - "Add/update/remove are mathematically correct."
+      - "Level-aware OFI is tested with hand-calculated examples."
+      - "Synthetic snapshot deltas are labeled as synthetic."
+      - "Native sequence support is isolated as a future adapter capability."
+    result: "OFITracker now reconstructs a per-symbol book (seeded by snapshots via ObservationEnrichment, updated by deltas) so each price change is attributed to its true level relative to the current best bid/ask (_rank_of replaces the always-0 _price_to_level). OFI math is exactly ±(new_size-old_size) so add/update/remove are all correct. compute_order_book_delta emits old_size+new_size (with size mirror for legacy consumers); delta events are labeled synthetic:true with delta_seq as the local synthetic counter and native venue sequence carried as nonce. resolve_delta_sizes maps legacy {size, action} deltas. Tick recorder stores old_size."
+    tests: "New tests/unit/test_order_flow.py (hand-calculated level-aware OFI, sign convention, legacy schema, out-of-depth filtering, window pruning, snapshot resync, event dispatch) + delta old/new-size and synthetic-flag tests in tests/unit/test_ccxt_adapter.py. Full suite: 330 passed."
+    blockers:
+      - "P0-004"
+    completed_at: "2026-08-11"
+
+  - id: P0-006
+    title: "Replace unsafe tick recorder format"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/validation/tick_recorder.py
+      - tests/unit/test_tick_recorder.py
+    acceptance:
+      - "No pickle is required to read recorded data."
+      - "Existing data can be migrated or explicitly discarded."
+      - "Schema includes timestamp, symbol, side, price, old/new size where known, action, sequence."
+      - "Round-trip tests pass."
+    result: "Recorder now writes JSONL ({symbol}/{YYYY-MM-DD}.jsonl): pickle-free, appendable, human auditable, stdlib-only to read. Schema per record: timestamp, symbol, side, price, old_size (null when unknown), new_size, size (back-compat alias), action, sequence (delta_seq). Legacy numpy object-array .npz captures are never loaded on the write path: _quarantine_legacy renames them to .npz.legacy (explicit discard from the active path, bytes preserved), and migrate_legacy_tick_data() is an explicit opt-in converter to JSONL (renames to .npz.migrated). get_stats/load_tick_data now glob/read only .jsonl."
+    tests: "New tests/unit/test_tick_recorder.py (11 tests: round-trip+schema, no-pickle/JSONL-only read, unknown sizes null, multi-flush append, legacy quarantine on write, explicit migration, empty/missing symbol, get_stats, non-delta ignored, all actions). Full suite: 351 passed. mypy clean on changed files. ruff clean on changed files."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-007
+    title: "Replace purged CV with label-aware validation"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/validation/purged_cv.py
+      - tests/
+    acceptance:
+      - "Training labels overlapping test labels are purged."
+      - "Embargo is explicit."
+      - "No future training observations are used for a test fold unless explicitly allowed by the selected validation design."
+      - "Adversarial leakage tests pass."
+      - "Documentation explains interval semantics."
+    result: "purged_cv.py rewritten as label-aware validation. Each sample may carry a label interval [label_start, label_end]; samples whose interval overlaps a test period are purged, and an explicit embargo (in label-interval units) clears the gap after each test period. API: PurgedKFold(n_splits, embargo), WalkForwardCV(train_size, test_size, step_size, expanding, embargo), CombinatorialPurgedCV(n_splits, n_test_groups, embargo); each split(X, y, groups, label_start, label_end); compute_purged_metrics(y_true, y_pred, cv, X, label_start, label_end). Interval semantics and the K-fold/CPCV future-training design note are documented in the module docstring. Removed the old embargo_pct/embargo_size parameters (no consumers; validation/__init__.py exports unchanged)."
+    tests: "New tests/unit/test_purged_cv.py (25 tests): index fallback = plain K-fold partition; adversarial training-label-into-test-period purging; purging is per-fold not global; embargo removes post-test training within the gap and keeps samples at/after the boundary; walk-forward never trains on the future, purges reaching labels, embargo widens the gap, rolling window correctness; CPCV emits distinct disjoint combinations, drops only the extreme combination whose training set empties, and purges overlapping training; label-interval validation errors; compute_purged_metrics perfect-fit/NaN/label-forwarding. Full suite: 376 passed. mypy clean on changed files. ruff clean on changed files."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-008
+    title: "Make simulator risk snapshots replay-time deterministic"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/simulation/paper_trading_simulator.py
+      - tests/application/test_paper_trading_simulator.py
+    acceptance:
+      - "Daily/monthly resets use injected/event time."
+      - "Same replay produces same results."
+      - "No wall-clock dependency remains in deterministic simulation."
+    result: "risk_snapshot() no longer consults the wall clock. The simulator now tracks event time in SimulatorState.current_time (the latest proposal.created_at seen by process(), advanced monotonically so out-of-order replays never rewind the reset boundary), and resets the daily/monthly PnL windows from that event time. risk_snapshot() also accepts an explicit keyword-only now= override for operator surfaces/tests. When neither exists, the reset windows simply stay at zero. No datetime.now()/time source remains anywhere in the simulation package."
+    tests: "Extended tests/application/test_paper_trading_simulator.py (4 new determinism tests): daily reset uses event time not wall clock; monthly reset uses event time; injected now overrides event time; identical replays with deterministic event timestamps produce identical risk snapshots (as_dict equality). Also annotated fixture type (SimFixture) for mypy. Full suite: 380 passed. mypy clean on changed files. ruff clean on changed files."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-009
+    title: "Fix short and signed PnL accounting"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/simulation/paper_trading_simulator.py
+      - backend/domain/execution/
+      - tests/
+    acceptance:
+      - "Long unrealized PnL is correct."
+      - "Short unrealized PnL is correct."
+      - "Realized PnL is correct."
+      - "A shared accounting function prevents formula duplication."
+    result: "Added a single shared signed accounting module backend/domain/execution/pnl.py: signed_direction(side) (+1 buy / -1 sell), realized_pnl(side, entry, exit, qty) and unrealized_pnl(side, entry, mark, qty), both = direction * (current - entry) * quantity. Fixed the real bug: risk_snapshot() (P0-009).unrealized PnL was (mark - entry) * qty for every position, which is wrong for shorts; it now uses unrealized_pnl(). The duplicated realized PnL side-branches in _close() and _close_position() were replaced with realized_pnl(). Exported both functions from backend/domain/execution/__init__.py."
+    tests: "New tests/domain/test_pnl_accounting.py (13 hand-computed cases): signed direction; long/short realized profit & loss; flat and zero-qty; long/short unrealized both directions (short cases are the historical sign-bug regression). Integration tests in tests/application/test_paper_trading_simulator.py: short position profitable at lower mark (equity > 100k, exact formula check) and losing at higher mark (equity < 100k, exact check). Full suite: 395 passed. mypy clean on changed files. ruff clean on changed files."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-010
+    title: "Integrate fees and execution costs into net PnL"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/simulation/paper_trading_simulator.py
+      - backend/application/simulation/paper_fill_engine.py
+      - backend/domain/execution/execution_report.py
+      - backend/domain/execution/trade_record.py
+    acceptance:
+      - "Gross PnL and net PnL are distinct."
+      - "Fees are recorded."
+      - "Paper fee assumptions are configurable."
+      - "Execution report and ledger agree."
+      - "Funding is represented as a separate cost field or explicitly deferred."
+    result: "Introduced a configurable PaperFeeConfig (taker/maker rate as fractions of notional, frozen dataclass, negative rates rejected; defaults remain zero so the paper simulator is a fee-free deterministic baseline out of the box). PaperFillEngine now computes real fees on every filled notional (market fills and spread-crossing limit fills are taker; resting NEW orders carry 0.0). PaperTradingSimulator accepts the same fee_config: entry fee is debited from equity and the daily/monthly loss windows at open; exits book gross - exit_fee; each closed TradeRecord now records gross_pnl and realized_pnl (net = gross - entry_share - exit_fee) plus fee (entry+exit), and bracket exits charge the taker rate on exit notional because they have no gateway report. Partial closes pro-rate the entry fee and shrink the residual open record's quantity (a latent bug exposed: the record previously stayed at full quantity, so a later EXIT would over-close). Funding is modelled as an explicit separate field funding_cost on both ExecutionReport and TradeRecord and stays None in the paper sim (explicitly deferred); it is never folded into the execution fee."
+    tests: "New tests/application/test_paper_fees.py (11 tests): PaperFeeConfig validation; market buy/sell fills charge taker fee on notional; zero-fee default charges nothing; funding deferred (None); full round-trip gross/net/fee/equity reconcile with hand-computed values; report and ledger agree (open record carries entry fee, ledger record carries entry+exit); funding stays None on both open and closed records; bracket exit charges the taker fee on exit notional; partial close allocates entry fee proportionally across slices and pro-rates the residual open record. Full suite: 406 passed. mypy clean on all 123 backend files. ruff clean on changed files."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-011
+    title: "Capture execution arrival state"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/infrastructure/execution/ccxt_gateway.py
+      - backend/application/
+      - backend/domain/execution/execution_report.py
+    acceptance:
+      - "Arrival mid is captured before submission."
+      - "Slippage is measurable."
+      - "Execution latency is measurable."
+      - "Venue fee/maker status is normalized."
+    result: "The CCXT gateway now snapshots the venue order-book mid BEFORE create_order for every submission and records it as ExecutionReport.arrival_price (slippage was previously dead-code: arrival_price was hardcoded None with a 'caller can set' comment). Order-book fetch failures degrade gracefully (order still submits, arrival None). ExecutionReport gained latency_ms, measured wall-clock around the create_order call. Edge handling: empty/malformed books yield None arrival. The CCXT protocol gained fetch_order_book; module helper _mid_price tolerates flat [price, amount] levels, fully-quoted levels, and missing sides. Fee/maker normalization hardened with explicit tests for dict fee, flat number fee, missing fee, maker bool, takerOrMaker string, and unknown marker."
+    tests: "Extended tests/unit/test_ccxt_gateway.py (12 new tests, 38 total in file): arrival mid == book mid; fetch precedes create_order (call order asserted); missing book and fetch-failure degrade to None arrival while order still fills; buy/sell slippage_bps match hand-computed values; latency measured >= 0; rejected order still carries arrival mid; fee dict/flat/missing normalization; maker bool / takerOrMaker string / unknown normalization. Full suite: 420 passed. mypy clean (123 files). ruff clean."
+    blockers: []
+    completed_at: "2026-08-11"
+
+  - id: P0-012
+    title: "Build order and position reconciliation contract"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/interfaces/order_gateway.py
+      - backend/application/interfaces/risk_feed.py
+      - backend/application/interfaces/venue_state.py
+      - backend/application/risk/circuit_breaker_risk_gate.py
+      - backend/application/execution/reconciliation_service.py
+      - backend/domain/execution/
+      - backend/infrastructure/execution/ccxt_gateway.py
+      - tests/
+    acceptance:
+      - "Unknown order states are explicit."
+      - "Venue state can be reconciled with internal state."
+      - "Position mismatch blocks new risk."
+      - "Restart recovery is tested."
+    result: "Reconciliation contract completed with the two missing acceptance criteria wired. (a) UNKNOWN is explicit: CcxtOrderGateway._map_status now returns OrderStatus.UNKNOWN for any unrecognised venue status instead of silently coercing to NEW (order.py contract / ADR 0019). (b) Position mismatch blocks new risk: ReconciliationService.reconcile reports per-symbol consistency; the reconcile routes feed each report's health into the shared risk gate via new RiskFeed.set_reconciliation_state(symbol, consistent). CircuitBreakerRiskGate rejects ALL risk-increasing actions gate-wide while any symbol is flagged inconsistent (spec §9.5 'Any mismatch must block new exposure until resolved'), safety actions always pass, and a later consistent report clears the symbol. Gate-wide halt confirmed by operator decision. Venue comparison, restart recovery, and store already existed."
+    tests: "New TestReconciliationVeto (7 tests in tests/application/test_risk_gate.py: gate-wide block, consistent pass, cross-symbol block, clear-on-reconcile, tracking, safety actions pass, disabled flag); TestRiskGateFeed (4 wiring tests in tests/presentation/test_routes_reconciliation.py); UNKNOWN assertions added to tests/unit/test_ccxt_gateway.py for fetch_order_status and submit. Existing reconciliation/restart/recovery tests retained. Full suite: 799 passed. mypy clean on backend files. ruff clean."
+    blockers: []
+    completed_at: "2026-08-13"
+
+  - id: P0-013
+    title: "Protect all sensitive API routes"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/presentation/api/
+      - backend/main.py
+      - tests/presentation/
+    acceptance:
+      - "Sensitive read/write endpoints require authentication."
+      - "Health endpoint remains intentionally public if desired."
+      - "Kill/release controls require authentication."
+      - "Development mode behavior is explicit."
+    result: "All /v1/* routers (context, memory, drive, decision, supervisor, reconciliation) now carry dependencies=[Security(verify_api_key)]. Test coverage asserts 401 when API_KEY is configured and no/missing header, 403 on mismatch. .env.example documents API_KEY. Health endpoint remains public."
+    tests: "tests/presentation/test_routes_memory.py (401/403 cases) + full suite green."
+    blockers: []
+    completed_at: "2026-08-12"
+
+  - id: P0-015
+    title: "Wire durable ingest into the live composition root"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/main.py
+      - backend/application/pipeline/context_pipeline_service.py
+      - backend/presentation/api/routes_drive.py
+      - tests/presentation/test_routes_drive.py
+    acceptance:
+      - "POST /v1/drive persists observations to SQLite."
+      - "POST /v1/drive persists the built market context."
+      - "Market-data events feed the supervisor stale-data gate."
+      - "Observability endpoints (/v1/events/recent, /v1/context/latest) return data after a drive."
+      - "The context builder is shared, not rebuilt per request."
+    result: "ContextPipelineService.handle() is now a public synchronous entry point returning the built MarketContext. main.py builds one shared context builder + ObservationBus + enrichment and wires a ContextPipelineService into app.state.ingest_pipeline; the drive route routes through it. Verified live: events/recent count=1, context/latest 200, supervisor healthy after a drive (was []/404 before)."
+    tests: "tests/presentation/test_routes_drive.py::test_drive_persists_observation_and_context (new). Full suite 580 passed; mypy clean; ruff clean."
+    blockers: []
+    completed_at: "2026-08-12"
+
+  - id: P0-016
+    title: "Quiet expected warm-up feature noise"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/application/feature_engine_impl.py
+      - tests/unit/test_feature_engine.py
+    acceptance:
+      - "Insufficient-data (ValueError) feature failures log one line, no traceback."
+      - "Genuine failures still log full exception."
+      - "Health report still records the failed feature."
+    result: "FeatureEngineImpl now distinguishes ValueError (expected warm-up/data conditions) -> logger.warning without traceback, from real exceptions -> logger.exception. Failure still recorded in ContextHealth.errors."
+    tests: "tests/unit/test_feature_engine.py::test_warmup_value_error_logged_without_traceback (new)."
+    blockers: []
+    completed_at: "2026-08-12"
+
+  - id: P0-014
+    title: "Validate live gateway in sandbox only"
+    priority: P0
+    status: DONE
+    paths:
+      - backend/infrastructure/execution/ccxt_gateway.py
+      - backend/infrastructure/execution/errors.py
+      - backend/application/context/bootstrap.py
+      - backend/infrastructure/config/settings.py
+      - tests/unit/test_ccxt_gateway.py
+    acceptance:
+      - "Sandbox order lifecycle works."
+      - "Reject/cancel/partial-fill/unknown states are handled."
+      - "No production credential is required."
+    result: "Live trading guard (P0-014): CcxtOrderGateway now refuses to start in live (non-sandbox) mode unless the operator explicitly authorizes live trading (new live_trading_authorized flag, default False) AND real venue credentials are present -- otherwise LiveTradingNotAuthorizedError / LiveTradingCredentialError, raised before any exchange is instantiated or any event-loop thread starts. Optics: sandbox stays the only mode that works out of the box and needs no credential (build_ccxt_order_gateway defaults live_trading_authorized=False; Settings gains ccxt_live_authorized=False). The gateway now also implements CancelableGateway: cancel() delegates to CCXT cancel_order, maps the terminal state through the unified status mapper (reject/cancel/partial-fill/unknown handled), preserves partial fills in the report, and RAISES when the venue rejects or returns an unknown order instead of fabricating a success. New exceptions module backend/infrastructure/execution/errors.py. Existing status handling (reject -> REJECTED report, partial -> PARTIALLY_FILLED, unrecognized -> UNKNOWN) already satisfied acceptance via _map_status."
+    tests: "tests/unit/test_ccxt_gateway.py grew from 38 to 48 tests: added TestLiveTradingGuard (6: unauthorized refuse before factory runs; authorized-but-credentialess refuse; authorized+credentials connect without sandbox mode; submit and fetch_positions also refuse when unauthorized; sandbox submit needs no credentials) and TestCcxtOrderGatewayCancel (4: delegates to cancel_order; partial fill preserved on cancelled report; venue rejection raises; unknown order raises). Full suite: 885 passed (was 875). mypy clean on 172 source files. ruff clean on backend+tests except pre-existing settings.py E501 (documented P2-001 comment)."
+    blockers:
+      - "P0-011"
+      - "P0-012"
+    completed_at: "2026-08-13"
+
+  - id: P1-001
+    title: "Build versioned historical dataset contract"
+    priority: P1
+    status: DONE
+    paths:
+      - backend/application/validation/
+      - docs/
+    acceptance:
+      - "Raw and normalized datasets are distinguishable."
+      - "Dataset snapshots are immutable/versioned."
+      - "Source timestamps and availability timestamps are preserved."
+    result: "New research domain: backend/domain/research/dataset.py (DatasetKind RAW/NORMALIZED, DatasetRecord with source_timestamp+available_at, DatasetVersion with SHA-256 content_hash, compute_content_hash); application port backend/application/interfaces/dataset_store.py; sqlite implementation backend/infrastructure/sqlite/dataset_repository.py (immutable PK, hash-mismatch rejection, chronological ordering); DatatasetService (build_raw_dataset/build_normalized_dataset with available_at >= source_timestamp invariant, records_available_by(cutoff) point-in-time query). dataset_versions/dataset_records tables in database.py SCHEMA."
+    tests: "tests/infrastructure/test_dataset_repository.py + tests/application/test_dataset_service.py (11 tests). Full suite 591 passed; mypy clean (141 files); ruff clean."
+    blockers:
+      - "P0-006"
+    completed_at: "2026-08-12"
+
+  - id: P1-002
+    title: "Build label-generation framework"
+    priority: P1
+    status: DONE
+    paths:
+      - backend/application/research/label_engine.py
+      - backend/domain/research/label.py
+      - tests/application/test_label_engine.py
+    acceptance:
+      - "Labels are defined before model training."
+      - "Forward-looking windows are explicit."
+      - "Label timestamps are recorded."
+    result: "LabelEngine generates labeled samples from a versioned dataset. Decision time = the sample record's source (market) time; features use only records with source_timestamp <= decision (never future); labels are strictly forward: FIXED_HORIZON via explicit [decision, decision+horizon] window, TRIPLE_BARRIER/META via backend/application/validation/triple_barrier with volatility or absolute-distance anchor. LabelStartLabelEnd topologies recorded; LabeledSample.to_dataset_record() emits normalized records into the P1-001 store. Causal structure defined in module docstring."
+    tests: "tests/application/test_label_engine.py (8 tests: declarative validation, directional fixed-horizon, explicit forward window, timestamps recorded, point-in-time no-leak on backfill, sample_every stride, triple-barrier vol anchor, normalized-record conversion). Full suite 599 passed; mypy clean (143 files); ruff clean."
+    blockers:
+      - "P1-001"
+    completed_at: "2026-08-12"
+
+  - id: P1-003
+    title: "Build baseline strategy evaluation suite"
+    priority: P1
+    status: DONE
+    paths:
+      - backend/application/research/baseline_evaluation.py
+      - backend/domain/research/evaluation.py
+      - tests/application/test_baseline_evaluation.py
+    acceptance:
+      - "Simple baselines exist."
+      - "All baselines use realistic costs."
+      - "Results are comparable."
+    result: "BaselineEvaluator + EvaluationCosts (half_spread + taker fee, realistic() defaults) + four causal baselines (always_flat, buy_and_hold, MA crossover, momentum). Every transition pays spread+fee; every BaselineResult carries the costed buy-and-hold reference and excess return, so strategies are compared on the same ruler. compare_strategies() always includes the references and sorts by excess. Deterministic given (prices, strategy, costs)."
+    tests: "tests/application/test_baseline_evaluation.py (16 tests: flat parity, buy&hold direction, causation/no leakage, uptrend following, short downside, window validation, cost reduction, whiplash bleed, references always included, shared comparison world, determinism, input validation). Full suite 615 passed; mypy clean (145 files); ruff clean."
+    blockers:
+      - "P1-001"
+      - "P1-002"
+    completed_at: "2026-08-12"
+
+  - id: P1-004
+    title: "Feature attribution and ablation framework"
+    priority: P1
+    status: DONE
+    paths:
+      - backend/application/research/feature_attribution.py
+      - backend/domain/research/attribution.py
+      - tests/application/test_feature_attribution.py
+    acceptance:
+      - "Each feature can be switched on/off."
+      - "Incremental contribution is measurable."
+      - "Results are reported by regime and cost."
+    result: "AblationRunner ablates each named feature (key removed) and re-scores the same labelled sample set through a pluggable FeatureScorer (ThresholdScorer ships as the deterministic reference; any model producing labels in {-1,0,+1} plugs in). Incremental contribution = full vs ablated accuracy/F1 (Metrics micro-averaged over active classes). Results bucketed by the samples' point-in-time regime tag (default 'all') and priced by cost: flip_count * round-trip (2x half-spread + taker, EvaluationCosts.realistic() by default) so a feature's lift is always weighed against its execution cost (lift_is_worth_cost)."
+    tests: "tests/application/test_feature_attribution.py (18 tests: metrics perfect/inverted/abstention/validation, report shape, real signal positive delta, dead feature no delta, both-ablations, regime bucketing + no mixing leak, flip costing, cost model reported, free costs cancel, input validation, threshold scorer semantics). Full suite 633 passed; mypy clean (147 files); ruff clean."
+    blockers:
+      - "P1-003"
+    completed_at: "2026-08-12"
+
+  - id: P1-005
+    title: "Research experiment registry"
+    priority: P1
+    status: DONE
+    paths:
+      - backend/application/research/experiment_registry.py
+      - backend/domain/research/experiment.py
+      - backend/application/interfaces/experiment_store.py
+      - backend/infrastructure/sqlite/experiment_repository.py
+      - backend/infrastructure/sqlite/database.py
+      - tests/infrastructure/test_experiment_registry.py
+    acceptance:
+      - "Every experiment has immutable metadata."
+      - "Failed experiments are preserved."
+      - "Final test data is protected."
+    result: "ExperimentRecord (frozen), ExperimentGroup (tuning/validation/final_test), ExperimentStatus (running->done/failed/aborted). ExperimentRegistry enforces final-test protection structurally: a FINAL_TEST registration claims its dataset; any later TUNING/VALIDATION experiment on that dataset is rejected. experiment_id UNIQUE -> duplicates raise, never overwrite; only status/metrics/failure_reason change through record_result. No delete path anywhere. sqlite experiments + final_test_claims tables."
+    tests: "tests/infrastructure/test_experiment_registry.py (18 tests: save/load, duplicate id no-overwrite, result attach without config rewrite, dict round-trip, terminal-save rejected, failed preserved, partial metrics kept, status filters, no backward transition, idempotent final-test claim, final-test blocks tuning/validation, unprotected data free, shared protection, persistence across connections). Full suite 651 passed; mypy clean (151 files); ruff clean."
+    blockers:
+      - "P1-001"
+    completed_at: "2026-08-12"
+
+  - id: P1-006
+    title: "Historical alternative-data storage"
+    priority: P1
+    status: DONE
+    acceptance:
+      - "Sentiment is stored by source timestamp."
+      - "SEC/proxy events are stored by filing/publication timestamp."
+      - "Backtests never use current cache values."
+    result: "AltDataEvent carries two clocks (event_timestamp = the fact, published_at = when public). AltDataStore port exposes ONLY point-in-time reads: state_at(cutoff) returns exactly events with published_at <= cutoff; there is no 'current value' read, so a backtest structurally cannot see a later article/filing. SqliteAltDataRepository enforces immutability (event_id UNIQUE -> duplicate raise), clock-consistency (published_at >= event_timestamp), and filters live caches out of research. alt_data_events sqlite table (event_id, symbol, kind, event_time, published_at, payload) with published_at lookup index."
+    tests: "tests/infrastructure/test_alt_data.py (15 tests: publication-clock cutoff, inclusive cutoff, empty-before-publication, future cutoff sees all, cutoff-only surface (no latest/current accessor), article-after-cutoff invisible, last-known-value by cutoff, latest never sees future event, kind filter, symbol filter, symbol normalisation, duplicate id rejected, publish-before-event rejected, dict round-trip, event count). Full suite 666 passed; mypy clean (155 files); ruff clean."
+    blockers:
+      - "P1-001"
+    completed_at: "2026-08-12"
+
+  - id: P1-007
+    title: "Regime-conditioned strategy evaluation"
+    priority: P1
+    status: DONE
+    acceptance:
+      - "Strategies report performance by regime."
+      - "Regime classification itself is timestamp-correct."
+    result: "VolatilityRegimeClassifier (causal: label for bar i uses only the trailing window ending at i, absolute threshold not whole-series quantile; warmup tags before the window). RegimeEvaluator reuses the shared costed BaselineEvaluator as the single source of truth and buckets per-bar equity deltas by regime, so each regime's return is net of the exact cost model and per-regime returns always sum to the whole-run total. RegimeEvaluatedResult embeds the full BaselineResult plus per-regime return/market/excess/vol/sharpe/positive-bar-rate/exposure/share and classifier + cost assumptions for reproducibility."
+    tests: "tests/application/test_regime_evaluation.py (15 tests: causal prefix-stability, warmup window, high-vol region flagged + calm tail clean, flat series warmup, classifier validation, per-regime returns sum to total, bars sum to total, no fabricated alpha ceiling, report embeds baseline, for_regime lookup, exposure exact per-regime from targets (flat=0 / long=all), determinism, label math matches). Full suite 681 passed; mypy clean (157 files); ruff clean."
+    blockers:
+      - "P0-002"
+    completed_at: "2026-08-12"
+
+  - id: P1-008
+    title: "Robustness and multiple-testing controls"
+    priority: P1
+    status: DONE
+    acceptance:
+      - "Parameter perturbation exists."
+      - "Cost stress exists."
+      - "Slippage stress exists."
+      - "Experiment count is tracked."
+      - "Selection bias is reported."
+    result: "RobustnessRunner: perturb() scores any list of labelled strategy variants on the SAME prices + cost model, reports champion, positive-variant count/fraction and a robust flag (>=60% keep positive excess); expense_stress() runs the same strategy under escalating cost multipliers (half-spread+taker) and slippage-only multipliers (half-spread), with survives_2x_cost / survives_2x_slippage flags; selection_bias() corrects the best-of-N headline via Harter expected-max-of-N under a normal null with the observed mean/std, reporting selection_inflation_pct and adjusted_excess_pct. No deletion, no tuning: the harness only measures."
+    tests: "tests/application/test_robustness.py (15 tests: shared-world champion, positive-variant counting, robust flag = majority rule, requires variants, deterministic, cost axis escalates costs monotonically, slippage axis scales only spread and stays below cost axis, survives_2x flags, flat never survives 2x, requires multipliers, best-of-N corrected, more tries more inflation, all-negative never survives, requires two samples, as_dict round-trip). Full suite 696 passed; mypy clean (159 files); ruff clean."
+    blockers:
+      - "P1-005"
+    completed_at: "2026-08-12"
+
+  - id: P1-009
+    title: "Out-of-sample decision-pipeline evaluation"
+    priority: P1
+    status: DONE
+    paths:
+      - backend/domain/research/oos_evaluation.py
+      - backend/application/research/decision_pipeline_evaluator.py
+      - backend/application/backtest/report.py
+      - backend/application/backtest/backtest_runner.py
+      - tests/application/test_decision_pipeline_evaluator.py
+    acceptance:
+      - "Test windows are always strictly after their training prefix (past-to-future only)."
+      - "Every fold runs a fresh pipeline/simulator/equity (no cross-fold leakage)."
+      - "The pipeline pays execution costs derived from the same cost model as the baselines."
+      - "Pooled evidence reports means/medians, positive-fold rate, beats-buy-and-hold rate, win rate, profit factor and net expectancy."
+      - "Identical inputs produce an identical report (determinism)."
+    result: "DecisionPipelineEvaluator evaluates the live decision pipeline (context -> reasoner -> risk gate -> simulator -> ledger) out-of-sample. WalkForwardCV (expanding train, disjoint consecutive test windows) produces folds; each fold builds a fresh in-memory pipeline via build_backtest_runner(reasoner_factory, fee_config) and scores the pipeline against the same costed baselines (buy_and_hold, momentum, ma_crossover) under EvaluationCosts. A reasoner_factory seam receives each fold's train steps/prices, so the model is trained only on the past. BacktestReport grew cost/expectancy evidence (total_fees, total_slippage_bps, gross_profit/gross_loss, win_rate, profit_factor, net_expectancy) and BacktestRunner accumulates it. PooledEvidence (domain/research/oos_evaluation.py) aggregates honest OOS numbers; as_dict serialises the whole report. Input validation rejects mixed symbols, non-positive prices, chronology regressions, non-WalkForwardCV splitters and fold-less series."
+    tests: "tests/application/test_decision_pipeline_evaluator.py (30 tests over a seeded synthetic market): input validation; strict past-to-future folds; disjoint non-overlapping test windows; fold count from walk-forward geometry; costed buy-and-hold reference present; baselines sorted by excess; custom baselines; fresh 100k equity per fold; pipeline pays fees/impact under realistic costs and is fee-free under a zero fee config; reasoner factory receives train data per fold; pooled reasoner name; default RuleBasedSolver; pooled sums == per-fold sums; pooled mean == fold mean; rates in [0,1]; win_rate/profit_factor/net_expectancy math; determinism (same seed -> identical as_dict, different seed -> different); serialisation round-trips. Full suite 1112 passed; mypy clean (195 files); ruff clean."
+    blockers:
+      - "P1-003"
+      - "P1-008"
+    completed_at: "2026-08-13"
+
+  - id: P2-001
+    title: "Realistic paper execution model"
+    priority: P2
+    status: DONE
+    acceptance:
+      - "Fees, spread, latency, partial fills, queue, cancellation and impact are modeled."
+      - "Paper execution shares interfaces with live execution."
+    result: "Engine models fills, partial fills, queue, maker/taker, fees, spread, latency, slippage, impact. The sandbox venue (P2-005) adds the missing venue-side order lifecycle, TTL expiry and self-reporting (VenueStateSource) so paper execution truly shares the live adapter ports."
+    blockers:
+      - "P0-010"
+      - "P0-011"
+    completed_at: "2026-08-12"
+
+  - id: P2-002
+    title: "Execution attribution"
+    priority: P2
+    status: DONE
+    acceptance:
+      - "Arrival price is stored."
+      - "Slippage is stored."
+      - "Fees are stored."
+      - "Maker/taker is stored."
+      - "Execution cost can be attributed per strategy."
+    result: "Decomposes every closed trade into alpha, entry/exit slippage, fees and funding via pure domain function attribute_trade (identity: gross = alpha - entry_slippage - exit_slippage; net = gross - fees - funding). ExecutionAttributionService loads closed trades and aggregates a portfolio report with cost_drag_pct. Simulator persists entry/exit arrival prices on every open/close/bracket path; GET /v1/ledger/attribution surfaces the decomposition. ADR 0017."
+    tests: "New tests/application/test_execution_attribution.py (9 tests) + 2 route tests in tests/presentation/test_routes_decision.py. Full suite: 729 passed."
+    blockers:
+      - "P0-011"
+    completed_at: "2026-08-12"
+
+  - id: P2-004
+    title: "Funding model"
+    priority: P2
+    status: DONE
+    acceptance:
+      - "Funding is a separate cost stream from fees."
+      - "Charged on position notional at deterministic UTC boundaries."
+      - "Longs pay a positive rate; shorts receive (signed cost)."
+      - "Deterministic replay of a proposal sequence reproduces the funding stream."
+      - "Attribution identity net = gross - fees - funding holds exactly."
+    result: "Introduced backend/domain/execution/funding.py: FundingConfig (signed rate per interval, interval_hours, UTC-anchored epoch) and funding_cost_for (cost = direction * rate * notional * intervals; boundaries counted in (open, close]). PaperTradingSimulator accepts an optional funding_config: when configured, every close path (manual, partial slice, bracket) charges the slice's funding into equity and the daily/monthly windows and records funding_cost on the closed ledger row, keeping realized_pnl = gross - fee - funding exact. When unconfigured behavior is unchanged (funding_cost stays None). ADR 0018."
+    tests: "New tests/application/test_paper_funding.py (23 tests): config validation; interval boundary arithmetic (open-exclusive, close-inclusive); signed costs for long/short and negative rates; equity/window flows; brackets; per-slice partial closes; attribution identity. Full suite: 752 passed. mypy clean. ruff clean."
+    blockers:
+      - "P0-011"
+    completed_at: "2026-08-12"
+
+  - id: P2-005
+    title: "Sandbox venue lifecycle"
+    priority: P2
+    status: DONE
+    acceptance:
+      - "Venue owns a guarded order lifecycle: fill, rest, partial, cancel, reject, expire."
+      - "No fill/cancel/expire can touch a terminal order."
+      - "Expiry is deterministic and driver-clock driven."
+      - "Venue self-reports positions and order status for reconciliation."
+    result: "Added backend/domain/execution/order_lifecycle.py (VenueOrderState: frozen, guards, TERMINAL_STATUSES = filled/cancelled/rejected/expired) and backend/application/simulation/sandbox_venue.py (SandboxVenue: wraps PaperFillEngine, implements OrderGateway + CancelableGateway + VenueStateSource, deterministic expire_due(now) with TTL = created_at + resting_ttl_hours, net VWAP fetch_open_positions, explicit UNKNOWN order status). Route POST /v1/reconcile/sandbox reconciles the sandbox venue's self-reported positions with the same shape as POST /v1/reconcile. ADR 0019."
+    tests: "New tests/application/test_sandbox_venue.py (lifecycle, cancel, expiry, venue-state source) + sandbox route tests in tests/presentation/test_routes_reconciliation.py. Full suite: 776 passed. mypy clean. ruff clean."
+    blockers:
+      - "P0-011"
+    completed_at: "2026-08-12"
+
+  - id: P2-003
+    title: "Microstructure validation harness integration"
+    priority: P2
+    status: DONE
+    paths:
+      - backend/application/validation/backtest_harness.py
+      - backend/application/validation/__init__.py
+      - tests/unit/test_backtest_harness.py
+    acceptance:
+      - "Microstructure strategies are tested through realistic fills."
+      - "Randomness is seeded or controlled."
+      - "Queue assumptions are documented."
+    result: "Fill-aware backtesting integrated. ValidationHarness gains backtest_microstructure(): strategy OrderDecisions are routed one step at a time through simulate_fill, so every fill pays the queue model (geometric fill probability by queue position), temporary+permanent impact, and maker/taker fees. Positions track average entry, closes are applied against the current exposure (buy closes shorts first, sell closes longs first), partial fills reduce exposure by the filled ratio, and unrealised PnL is marked at the final touch. Metrics: total_return, annualised sharpe, max_drawdown, win_rate over traded (non-zero) steps, n_trades = completed round trips, fill_rate, total_fees, total_impact_bps, plus an as_dict export. Randomness is per-instance: np.random.default_rng(config.seed), so seeded harnesses are fully reproducible and no harness ever touches the global NumPy state. Queue/fill-model assumptions are documented in the module docstring and exposed via HarnessConfig. Dataclasses BacktestResult, OrderDecision, BookSnapshot exported from the validation package."
+    tests: "New tests/unit/test_backtest_harness.py (15 tests): taker buy/sell fill immediately at the touch with temp+permanent impact and taker fee; unfilled maker pays no fee; partial maker fill capped by depth with maker rebate; in-spread order does not fill; seeded harness reproducible; different seeds diverge; global NumPy state untouched by unseeded harness; backtest alignment and positive-initial-price validation; exact round-trip metrics (return, fills, round trips, win rate, fees, impact); hold steps are not signals; unfilled passives count as attempts; partial fill opens partial position; seeded backtest reproducible. Full suite: 814 passed. mypy clean on 165 backend files. ruff clean on changed files."
+    blockers: []
+    completed_at: "2026-08-13"
+
+  - id: P3-001
+    title: "Scenario engine"
+    priority: P3
+    status: DONE
+    paths:
+      - backend/domain/research/scenario.py
+      - backend/application/research/scenario_engine.py
+      - tests/application/test_scenario_engine.py
+    acceptance:
+      - "Multiple scenarios are generated."
+      - "Probabilities are calibrated."
+      - "Expected value includes costs."
+      - "Abstention is supported."
+    result: "Scenario engine: turns a volatility estimate into a calibrated scenario set and prices actions net of costs. build_scenario_set() cuts n_points quantile buckets from the horizon sigma (vol_pct/100*sqrt(horizon)); each Scenario.return_pct is the bucket's analytic conditional mean (Acklam inverse-normal + erf) and probability the bucket mass, with optional expected_move_pct drift shifting returns without touching probabilities. ScenarioEngine.evaluate/set() computes EV = sum(p * signed return) minus round_trip_cost_pct (2*(half_spread+taker), reuse of the P1-003 EvaluationCosts ruler), and decides TRADE_LONG/TRADE_SHORT only when the NET expectation is positive, else ABSTAIN (explicit enum); FLAT is a zero-cost always-abstain ruler. best_action() prices both sides and picks the net-positive winner or abstains. calibration_report() verifies probabilities empirically (seeded default_rng, per-bucket model-vs-frequency error, Brier score). Domain value objects: Scenario, ScenarioSet, ScenarioEvaluation, ScenarioAction/ScenarioDecision enums."
+    tests: "New tests/application/test_scenario_engine.py (21 tests): multiple scenarios across n in {3,5,7,9}; structure; probabilities sum to 1; zero-drift symmetry; extremity ordering; drift shifts returns only; seeded empirical calibration (max_abs_error<0.01 over 200k draws); calibration deterministic; input validation; zero-vol drift-only; realistic round-trip cost; zero-drift long abstains at exactly -cost; positive drift long trades over threshold; negative drift short trades; EV = probability-weighted sum; flat always abstains; best_action abstains/picks long/picks short; as_dict round-trips. Full suite: 835 passed. mypy clean on 167 backend files. ruff clean (except pre-existing settings.py E501)."
+    blockers: []
+    completed_at: "2026-08-13"
+
+  - id: P3-002
+    title: "Historical analog retrieval"
+    priority: P3
+    status: DONE
+    paths:
+      - backend/domain/research/analog.py
+      - backend/application/research/analog_retrieval.py
+      - tests/application/test_analog_retrieval.py
+    acceptance:
+      - "State similarity is measurable."
+      - "Retrieval has timestamps and confidence."
+      - "Weak analogs are not treated as strong evidence."
+    result: "Historical analog retrieval engine. MarketState = an aligned feature vector (make_state validates name/value alignment and finiteness); similarity = 1/(1 + scale-aware weighted Euclidean distance) via feature_similarity, so identical states map to 1.0 and similarity falls monotonically as features diverge (per-feature scales make the metric dimensionless, per-feature weights control emphasis). AnalogRetrievalEngine.retrieve() filters history by min_similarity, returns top_k analogs best-similarity-first, each AnalogEvidence carrying its historical timestamp and confidence (similarity). Aggregation: analog_retrieval_result() computes similarity-weighted expected return, strong_analog_count (similarity >= strong_similarity), evidence_grade == 'strong' only when enough genuinely strong analogs support it (configurable required_strong), else 'weak' — so a lone strong analog, or a strong-plus-weak pair, is never treated as strong evidence. Confidence = best similarity. Deterministic; requires strong_similarity >= min_similarity."
+    tests: "New tests/application/test_analog_retrieval.py (20 tests): identical states sim 1.0; monotonic falloff; scale dimensionless; feature-weight control; misaligned states raise; best-first timestamps; sub-min exclusion; top_k; weighted EV computation; empty history; strong pair grades strong; single strong analog grades weak; strong+weak pair grades weak; required_strong and strong_similarity configurable; state/config validation; aligned-history requirement; as_dict round-trip; determinism. Full suite: 855 passed. mypy clean on 169 backend files. ruff clean (except pre-existing settings.py E501)."
+    blockers: []
+    completed_at: "2026-08-13"
+
+  - id: P3-003
+    title: "Strategy allocator"
+    priority: P3
+    status: DONE
+    paths:
+      - backend/domain/research/allocation.py
+      - backend/application/research/strategy_allocator.py
+      - tests/application/test_strategy_allocator.py
+    acceptance:
+      - "Strategies compete for risk budget."
+      - "Correlation and regime fit are included."
+      - "Allocator cannot bypass risk gate."
+    result: "Strategy allocator: allocate_strategies() divides a risk budget (portfolio volatility cap) among competing StrategyProfiles. Competition is explicit: strategies below max(min_regime_fit) are eliminated; survivors compete with a risk-parity shape (fit / volatility) scaled so the portfolio consumes exactly the budget. Correlation is included via the covariance matrix built from per-strategy volatility and the pairwise correlation matrix (validated symmetric, unit diagonal, in [-1,1]); the budget scaling factor comes from portfolio variance w^T Sigma w, so correlated strategies dilute each other's claim and achieved portfolio volatility sits at the budget. Regime fit reweights each claim and can eliminate strategies. The risk gate is structurally unbypassable: allocate_strategies(risk_gate_allowed=False) returns status='blocked' with every weight zero and the veto recorded, regardless of how attractive the inputs are. Deterministic; free of any external solver."
+    tests: "New tests/application/test_strategy_allocator.py (20 tests): single strategy takes full budget; equal risk parity; higher vol earns less (2:1); sorted allocations; non-negative, positive-sum; positive correlation holds back weights vs uncorrelated; regime fit reweights 2:1; min_regime_fit eliminates; portfolio vol never exceeds budget across budgets/correlations; expected return = weighted sum; risk-gate veto blocks even a very attractive strategy; default veto reason; gate pass allocates; input validation (empty/non-positive budget/dupes/zero-vol/out-of-range fit); correlation-matrix validation; config validation; determinism; as_dict round-trip (allocated and blocked); weight_for unknown is zero. Full suite: 875 passed. mypy clean on 171 backend files. ruff clean (except pre-existing settings.py E501)."
+    blockers: []
+    completed_at: "2026-08-13"
+
+  - id: P4-001
+    title: "Controlled model promotion"
+    priority: P4
+    status: DONE
+    paths:
+      - backend/domain/research/promotion.py
+      - backend/application/research/promotion_engine.py
+      - tests/application/test_promotion_engine.py
+    acceptance:
+      - "Research → validation → paper → canary → production gates exist."
+      - "Rollback is automatic and tested."
+    result: "Controlled promotion pipeline. Domain (backend/domain/research/promotion.py): ModelEnvironment enum + ENVIRONMENT_CHAIN (research -> validation -> paper -> canary -> production); next_environment/previous_environment navigation; PromotionConfig gate/stay limits (validation samples+sharpe, paper window+sharpe, canary window, max drawdown/underperformance/failed-orders); CandidateEvidence (cumulative, None = not applicable); PromotionRequest; GateDecision (required/satisfied/reasons, fails closed); DeploymentMonitor; RollbackDecision. Engine (backend/application/research/promotion_engine.py): PromotionEngine.evaluate() applies the CUMULATIVE gate chain up to the target environment (promoting into CANARY re-checks validation+paper gates on top of canary's own; into VALIDATION requires only that the candidate exists) so evidence can never leapfrog or go stale; promotion_chain()/promote()/rollback_required() helpers. Engine.rollback_required() is fully automatic: demotes one environment on any stay-limit breach (priority: failed orders, drawdown, underperformance); PRODUCTION->canary, CANARY->paper, PAPER->validation; a RESEARCH breach grounds with no lower environment. Deterministic, no external runtime."
+    tests: "New tests/application/test_promotion_engine.py (31 tests): chain order; next/previous navigation; full evidence promotes to production; validation entry always allowed; per-gate denials (samples, sharpe, paper window/sharpe, canary window); None evidence is a missing requirement; cumulative / no leapfrog; all missing reasons reported; satisfied listed; custom config raises/lowers bar; healthy candidate stays; drawdown/underperformance/failed-orders each roll back one environment; canary->paper, paper->validation targets; research grounded; multiple breaches all reported; custom stay limits; engine instance == module function; determinism; as_dict on all contract types. Full suite: 916 passed (was 885). mypy clean on 174 source files. ruff clean (except pre-existing settings.py E501)."
+    blockers:
+      - "P1-008"
+      - "P2-001"
+      - "P3-001"
+    completed_at: "2026-08-13"
+
+  - id: P4-002
+    title: "Autonomous research loop"
+    priority: P4
+    status: DONE
+    paths:
+      - backend/domain/research/hypothesis.py
+      - backend/application/research/research_loop.py
+      - tests/application/test_research_loop.py
+    acceptance:
+      - "Agent can generate hypotheses."
+      - "Agent can run experiments."
+      - "Agent can compare evidence."
+      - "Agent cannot directly deploy itself."
+    result: "Autonomous research loop. Domain (backend/domain/research/hypothesis.py): Hypothesis (claim/mechanism/feature_plan/params + HypothesisSource RULE|AI, deterministic as_dict); ExperimentOutcome (improvement_bps over best baseline, sharpe, samples, ok/failure_reason); EvidenceVerdict PROMISING/REFUTED/INCONCLUSIVE; EvidenceSummary (best experiment, samples, verdict); CandidateInsight; CycleReport. Engine (backend/application/research/research_loop.py): seeded HypothesisGenerator with a 3-family catalog (regime momentum, volatility-spike mean reversion, order-flow imbalance) emitted in fixed order for reproducibility, AI source injectable through the same interface; ResearchLoop.run_cycle() enforces registry novelty (already-studied claims are rejected as duplicates), runs experiments_per_hypothesis via an injectable ExperimentRunner, and weighs evidence with strict honest verdicts (PROMISING needs an experiment clearing BOTH sharpe and improvement floors; REFUTED needs every completed experiment failing both bars; failed runs alone or split evidence is INCONCLUSIVE). The loop CANNOT deploy itself: it only emits insights + rejected/failed evidence — no environment transitions, no promotion, no execution path (tested by contract surface). Hands off to the P4-001 promotion pipeline as evidence only."
+    tests: "New tests/application/test_research_loop.py (21 tests): deterministic seeded generation; rule/AI sources; unique ids; zero/negative budget; custom families; novelty filter rejects studied claims (incl. prefix-duplicate path) and lets novel claims run; both-bar PROMISING rule; negative-improvement denial; uniform-failure REFUTED; split-evidence INCONCLUSIVE; failed-runs-only INCONCLUSIVE; failed outcomes preserved; accepted hypotheses run their experiments; seeded determinism; external (AI) hypotheses accepted; convenience functions run_research_cycle/generate_hypotheses; no-deployment contract surface; EvidenceSummary as_dict. InMemoryExperimentStore fake mirrors the ExperimentStore port. Full suite: 937 passed (was 916). mypy clean on 176 source files. ruff clean (except pre-existing settings.py E501)."
+    blockers:
+      - "P4-001"
+    completed_at: "2026-08-13"
+
+  - id: P4-003
+    title: "Live canary"
+    priority: P4
+    status: DONE
+    paths:
+      - backend/domain/research/canary.py
+      - backend/application/research/canary_harness.py
+      - tests/application/test_canary_harness.py
+    acceptance:
+      - "Sandbox lifecycle proven."
+      - "Paper campaign proven."
+      - "Risk and reconciliation proven."
+      - "Explicit operator authorization."
+    result: "Live-canary campaign harness. Domain (backend/domain/research/canary.py): CanaryAction CONTINUE/RETIRED/HOLD/PRODUCTION_READY; CanaryPeriod (day, action, reason); CanaryProgramResult (candidate_id, authorized, days_run, action, periods, reason); CanaryNotAuthorized error. Harness (backend/application/research/canary_harness.py): CanaryHarness.run(candidate_id, evidence, monitor_fn, *) composes the P4-001 promotion/rollback engine into a bounded day-by-day campaign — refusal WITHOUT explicit operator authorization (authorized=False raises CanaryNotAuthorized, same fail-safe posture as the P0-014 live-trading guard); each period reads an injected DeploymentMonitor (operational health then drawdown then underperformance) and applies automatic P4-001 rollback, retiring the campaign early on any breach with the specific stay-limit reasons preserved; a full clean campaign then consults the production promotion gate — PRODUCTION_READY only on a grant, otherwise HOLD. The harness only monitors; real orders stay on the operator-wired gateway and are never touched here. Upstream proofs for the other acceptance criteria: sandbox lifecycle (P0-014 + SandboxVenue), paper campaign (PaperFillEngine/PaperTradingSimulator/backtest harness), risk+reconciliation (P0-006..P0-012), explicit authorization (CanaryNotAuthorized + ccxt_live_authorized)."
+    tests: "New tests/application/test_canary_harness.py (16 tests): unapproved start refuses (engine + convenience fn); authorized campaign starts; breach on day k retires with preserved specific reasons (drawdown / underperformance / failed orders); clean campaign runs the full window; production gate grant -> PRODUCTION_READY; insufficient canary window or missing paper evidence -> HOLD; custom campaign_days/environment_target; determinism; as_dict round-trips for program, periods, retired result; convenience run_canary_campaign. Full suite: 953 passed (was 937). mypy clean on 178 source files. ruff clean (except pre-existing settings.py E501)."
+    blockers:
+      - "P0-014"
+      - "P4-001"
+    completed_at: "2026-08-13"
+
+  - id: P4-004
+    title: "Paper autonomy"
+    priority: P4
+    status: DONE
+    paths:
+      - backend/domain/research/paper_campaign.py
+      - backend/application/research/paper_autonomy.py
+      - tests/application/test_paper_autonomy.py
+    acceptance:
+      - "Long autonomous paper campaign runs unattended."
+      - "Stay limits retire the campaign automatically."
+      - "Paper evidence is earned, not claimed (days + sharpe from real outcomes)."
+      - "Canary eligibility requires the promotion gate; live start still needs operator authorization."
+    result: "Long autonomous paper campaign (build-order #37, the last STAGE 5 runtime gap). Domain (backend/domain/research/paper_campaign.py): PaperDayAction CONTINUE/RETIRED; PaperCampaignAction COMPLETED_ADVANCED/COMPLETED_HOLD/RETIRED; PaperDayOutcome (day, return_pct, expected_return_pct, failed_orders, total_orders); PaperDay (action, return, drawdown, reason); PaperCampaignResult with accumulated CandidateEvidence, sharpe, drawdown, eligible_for_canary property. Runner (backend/application/research/paper_autonomy.py): PaperAutonomyRunner.run(candidate_id, initial_evidence, day_fn) executes up to campaign_days (default 30) of injected decision-loop execution against the paper simulator, tracking running drawdown from equity peak, annualised Sharpe from daily-return variance, underperformance vs the day-level expected return, and operational failed-order rate; every day the P4-001 rollback discipline is applied — a stay-limit breach retires the campaign early with specific reasons preserved and RESETS paper evidence (demote to validation, validation evidence survives). A breach-free full window accumulates earned paper_days_deployed + paper_sharpe into the promotion evidence and submits to the CANARY gate: grant -> COMPLETED_ADVANCED, otherwise COMPLETED_HOLD. Principled difference from the canary: paper is the AUTONOMOUS SANDBOX — deliberately no authorized flag, because it can never move money; eligible_for_canary is eligibility only, the canary itself still requires CanaryHarness authorized=True (P4-003) plus the P0-014 live guard."
+    tests: "New tests/application/test_paper_autonomy.py (19 tests): runs without any authorization (sandbox principle); full clean window; convenience run_paper_campaign; long clean campaign -> COMPLETED_ADVANCED with positive sharpe and earned 30 paper days; short clean campaign -> HOLD; prior paper days accumulate toward the gate; weak validation -> HOLD even after a clean window; drawdown breach retires on the breach day preserving reasons; underperformance breach; operational failed-order breach; retired candidate loses paper evidence (validation survives); zero-variance -> sharpe 0.0; positive-variance -> positive sharpe; drawdown tracks running peak; determinism; as_dict round-trips for result/period/retired. Full suite: 972 passed (was 953). mypy clean on 180 source files. ruff clean (except pre-existing settings.py E501)."
+    blockers:
+      - "P4-001"
+      - "P4-002"
+    completed_at: "2026-08-13"
+
+  - id: P4-005
+    title: "Gradual scaling"
+    priority: P4
+    status: DONE
+    paths:
+      - backend/domain/research/scaling.py
+      - backend/application/research/gradual_scaling.py
+      - tests/application/test_gradual_scaling.py
+    acceptance:
+      - "Exposure starts at the floor, never exceeds the operator-bounded ceiling."
+      - "An increment is earned only by a clean stay at the current tier."
+      - "Any stay-limit breach cuts exposure straight back to the floor."
+      - "Every tier is recorded with its exposure, action and reason."
+    result: "Gradual post-canary capital-scaling harness (build-order #40, the final STAGE 5 item). Domain (backend/domain/research/scaling.py): ScalingAction ADVANCE/HOLD/CUT/CAPPED; ScalingBoundary RAMPING/CAPPED/CUT; ScaleTier (tier, capital_fraction, action, reason); ScalingProgramResult (boundary, action, current_fraction, tiers, reason) with as_dict round-trips. Harness (backend/application/research/gradual_scaling.py): GradualScalingRunner.run(candidate_id, monitor_fn, max_periods=365) ramps exposure from floor_fraction toward max_fraction by step_fraction, but only after hold_periods of clean monitored periods; the P4-001 rollback discipline applies at every tier — a breach snaps exposure to the floor and ends the ramp (boundary CUT) with reasons preserved; reaching the ceiling cleanly is a distinct terminal state (CAPPED); running past max_periods without capping yields RAMPING. Bounds: round-to-6-dp accumulation keeps tiers stable; max_periods is a loop safety bound. Principle: the OPERATOR owns the ceiling (max_fraction), the harness only manages the path to it and always under the same stay limits that governed paper (P4-004) and canary (P4-003). The harness reads injected monitors only; it never touches a venue."
+    tests: "New tests/application/test_gradual_scaling.py (13 tests): ramp from floor to cap with recorded advancement tiers; never exceeds max_fraction; partial clean streak yields one advance then holding; capped is terminal and recorded; still ramping after max_periods; drawdown breach cuts to floor; underperformance breach also cuts; cut can occur after advances; convenience run_gradual_scaling; result/tier/cut as_dict round-trips; determinism. Full suite: 985 passed (was 972). mypy clean on 182 source files. ruff clean (except pre-existing settings.py E501)."
+    blockers:
+      - "P4-001"
+      - "P4-003"
+    completed_at: "2026-08-13"
+
+  - id: P4-006
+    title: "Composed autonomy program"
+    priority: P4
+    status: DONE
+    paths:
+      - backend/domain/research/autonomy_program.py
+      - backend/application/research/autonomy_program.py
+      - tests/application/test_autonomy_program.py
+    acceptance:
+      - "One candidate runs the whole ladder in a single deterministic program."
+      - "Stages are injected callables; the program never executes or trades."
+      - "A HELD/FAILED stage stops the run; later stages record NOT_REACHED."
+      - "Passed-stage evidence carries forward to the next stage."
+      - "Every stage verdict and the earned chain are recorded and serializable."
+    result: "Composed autonomy program — the post-queue hardening that closes the audit's 'most important next move': one coherent research-to-production pipeline. Domain (backend/domain/research/autonomy_program.py): ProgramStage ladder RESEARCH/VALIDATION/PAPER/CANARY/PRODUCTION; StageVerdict PASSED/HELD/FAILED/SKIPPED/NOT_REACHED; StageResult (stage, verdict, reason, evidence) with as_dict; AutonomyProgramResult (program_id, candidate_id, stages, final_environment, notes) with an earned property in promotion order and as_dict. Orchestrator (backend/application/research/autonomy_program.py): ProgramConfig (program_id, entry_evidence, stages, runners); AutonomyProgram.run(candidate_id, runner_for=...) composes injected StageRunner callables (same injected-callable discipline as every research harness) — each runner receives (candidate_id, current_evidence); PASSED forwards the result evidence into the next stage; HELD/FAILED ends the run at that rung and marks every later configured stage NOT_REACHED; a stage missing a runner is recorded SKIPPED and does not break the chain. final_environment = last earned stage. Nothing here touches a venue, an order, or capital; the canary stage remains only a gate over earned evidence (real canary start requires operator CanaryHarness authorization, P4-003, plus the P0-014 live guard). run_autonomy_program convenience."
+    tests: "New tests/application/test_autonomy_program.py (13 tests): full-ladder pass reaches production with earned chain in order; program_id/candidate recorded; HELD stops the run and marks later stages NOT_REACHED; FAILED stops with final_environment at the last earned rung; first-stage failure leaves earned empty; passed-stage evidence is forwarded into the next stage's input; missing runner -> SKIPPED recorded and chain continues to production; as_dict round-trips for result and stage; convenience function; determinism. Full suite: 998 passed (was 985). mypy clean on 184 source files. ruff clean (except pre-existing settings.py E501)."
+    blockers:
+      - "P4-001"
+      - "P4-002"
+      - "P4-003"
+      - "P4-004"
+      - "P4-005"
+    completed_at: "2026-08-13"
+
+  - id: P5-001
+    title: "PBO / Deflated Sharpe (false-discovery defense)"
+    priority: P5
+    status: DONE
+    paths:
+      - backend/domain/research/pbo.py
+      - backend/application/research/robustness.py
+      - backend/application/research/decision_pipeline_evaluator.py
+      - backend/domain/research/oos_evaluation.py
+      - tests/application/test_pbo.py
+      - tests/application/test_decision_pipeline_evaluator.py
+      - tests/application/test_robustness.py
+    acceptance:
+      - "Probability of Backtest Overfitting (PBO) computed over the OOS evaluator's fold returns."
+      - "Deflated Sharpe Ratio (DSR) computed against the multiple-testing trial count."
+      - "Both reported in the pooled evidence record of every evaluated strategy."
+      - "Existing expected-max-of-N selection-bias correction remains and is cross-checked."
+    result: >
+      backend/domain/research/pbo.py implements both statistics as pure, seeded,
+      strategy-free functions: compute_deflated_sharpe (Bailey & Lopez de Prado
+      2014, deflation via expected max of N standard normals: Harter table for
+      n<=20, monotone Bailey-LdP closed form beyond) and compute_pbo (Bailey
+      et al. 2017, split sampling by combinatorial unranking, never materializes
+      the C(t, t//2) space). DecisionPipelineEvaluator gained n_trials (default
+      1 = no deflation), computes pooled.deflated_sharpe when >= 4 folds, and
+      exposes evaluate_variants() which runs N reasoner factories on identical
+      OOS folds and reports PBO across the variant family. PooledEvidence gained
+      the deflated_sharpe field (None when inestimable). RobustnessRunner
+      selection_bias now imports expected_max_of_normal_normals from the shared
+      domain module (local duplicate removed).
+    tests: "1149 tests pass (24 new in tests/application/test_pbo.py, 13 new in test_decision_pipeline_evaluator.py), mypy clean on 196 source files, ruff clean."
+    blockers:
+      - "P1-009"
+    completed_at: "2026-08-13"
+
+  - id: P5-002
+    title: "Research firewall: locked test is dead"
+    priority: P5
+    status: READY
+    paths:
+      - backend/application/interfaces/dataset_store.py
+      - backend/application/research/
+      - tests/
+    acceptance:
+      - "A period claimed as a test set cannot later be served as training data."
+      - "The claim is recorded immutably (who, when, which experiment)."
+      - "Violations are refused at data-access time, not just at validation time."
+      - "Documented in the dataset store module docstring."
+    result: ""
+    tests: ""
+    blockers:
+      - "P1-001"
+    completed_at: ""
+
+  - id: P5-003
+    title: "Strategy passport / evidence engine"
+    priority: P5
+    status: READY
+    paths:
+      - backend/domain/research/
+      - backend/application/research/
+      - tests/
+    acceptance:
+      - "Every evaluated strategy carries one auditable record: hypothesis, data, features, labels, train/val/test periods, trial count, costs, OOS/paper/live performance, promotion and rollback reasons."
+      - "The OOS evaluator emits the statistical-evidence section of the passport."
+      - "Passport is serializable and stored via the experiment registry."
+    result: ""
+    tests: ""
+    blockers:
+      - "P1-009"
+      - "P5-001"
+    completed_at: ""
+
+  - id: P5-004
+    title: "Live-vs-paper execution calibration harness"
+    priority: P5
+    status: READY
+    paths:
+      - backend/application/simulation/
+      - backend/application/research/
+      - tests/
+    acceptance:
+      - "Simulated fills are compared against realistic historical execution assumptions per symbol."
+      - "Calibration reports bias and dispersion of simulated vs realistic slippage/impact."
+      - "Results are stored in the experiment registry for the passport."
+    result: ""
+    tests: ""
+    blockers:
+      - "P2-001"
+      - "P2-002"
+    completed_at: ""
+
+current_focus:
+  phase: "P5"
+  rule: "All P0-P4 queue items are DONE (39 tasks), culminating in the composed autonomy program (P4-006). P5-001 (PBO/DSR false-discovery defense) is DONE (2026-08-13): 1149 tests, mypy clean on 196 source files, ruff clean. The second external review (docs/ATI_Strategic_Review.md, 42/100) changes the direction to 'quantitative research institution in software' — see docs/ATI_Strategic_Alignment.md for the mapping and priorities. Next: the evidence ladder — (1) run the OOS evaluator (P1-009) on real historical data, (2) quantify the AI reasoner's incremental contribution via its factory seam, (3) research firewall (P5-002), (4) strategy passport (P5-003), (5) live-vs-paper calibration (P5-004). Autonomy ladder stays library-only until evidence gates pass."
+  first_task: "P5-002"

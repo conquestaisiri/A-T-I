@@ -1,0 +1,71 @@
+# Context Builder configuration (task P0-003).
+# Every registered feature must be explicitly configured; unknown names and
+# unrecognised parameters cause startup failure during loader validation.
+# Newer/experimental features default to disabled: flip `enabled: true` only
+# after they are validated.
+
+window:
+  duration_seconds: 900000
+
+features:
+  trend:
+    enabled: true
+    parameters:
+      lookback: 10
+      flat_threshold_pct: 0.05
+
+  momentum:
+    enabled: true
+    parameters:
+      lookback: 5
+
+  volatility:
+    enabled: true
+    parameters:
+      lookback: 20
+      min_samples: 3
+
+  volume:
+    enabled: true
+    parameters:
+      lookback: 10
+
+  liquidity:
+    enabled: true
+    parameters:
+      depth_levels: 5
+      lookback: 10
+
+  sentiment:
+    enabled: false
+    parameters:
+      symbol: BTC
+
+  insider:
+    enabled: false
+    parameters:
+      symbol: BTC
+
+  order_flow:
+    enabled: false
+    parameters:
+      symbol: BTC
+
+  micro_price:
+    enabled: false
+    parameters:
+      symbol: BTC
+
+  regime:
+    enabled: false
+    parameters:
+      symbol: BTC
+
+  book_imbalance:
+    enabled: false
+    parameters:
+      depth_levels: 10
+
+  kyle_lambda:
+    enabled: false
+    parameters: {}

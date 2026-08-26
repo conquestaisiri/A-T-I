@@ -1,0 +1,52 @@
+{
+ "project": "Autonomous Trading Intelligence",
+ "snapshot_date": "2026-08-12",
+ "live_trading_enabled": false,
+ "phase": "P1",
+ "engineering_state": "substantial_foundation_partial_integration",
+ "profitability_proven": false,
+ "database_snapshot": {
+  "observation_events": 0,
+  "market_contexts": 0,
+  "decision_proposals": 3,
+  "trade_ledger": 0,
+  "memory_episodes": 0
+ },
+ "architecture": {
+  "style": "clean_architecture_hexagonal",
+  "observation": "implemented",
+  "context": "implemented_with_new_feature_wiring_gaps",
+  "decision_proposal": "implemented",
+  "risk_gate": "implemented",
+  "paper_execution": "implemented_simplified",
+  "live_execution_adapter": "implemented_not_production_ready",
+  "reflection": "implemented",
+  "memory": "implemented_basic_episodic",
+  "research_validation": "implemented_partial_needs_correctness_audit"
+ },
+ "critical_known_issues": [
+  "CCXT arrival price is not captured reliably",
+  "live reconciliation contract needs sandbox validation (P0-014)",
+  "advanced risk layers (VPIN/impact/Kelly) dormant in live gate (G3)",
+  "AI reasoners/venue adapters not wired into the running loop (G4)",
+  "domain -> application runtime dependencies and module singletons (G6)",
+  "dead/duplicated code remains (G7)"
+ ],
+ "next_task": "P2-001",
+ "resolved_2026_08_12": [
+  "durable ingest wired into live composition root (G1): drive persists observations + contexts",
+  "supervisor stale-data gate now fed by live market-data events (G2)",
+  "all /v1 routes protected by API key (G5/P0-013)",
+  "feature warm-up noise reduced to one-line warnings (G8/P0-016)",
+  "P0-001..P0-011 corrective tasks confirmed complete (dependency manifest, regime fix, feature config, enrichment, OFI, tick recorder, purged CV, replay determinism, PnL, fees, arrival state)",
+  "P1-001 versioned dataset contract (raw/normalized, immutable SHA-256 versions, available_at invariant) built and tested",
+  "P1-002 label-generation framework (decision at source time, strictly-forward labels, explicit windows, no feature leakage) built and tested",
+  "P1-003 baseline strategy evaluation suite (costed, comparable, causal baselines; always-flat + buy-and-hold references) built and tested",
+  "P1-004 feature attribution/ablation framework (switchable features, incremental contribution, reported by regime and cost) built and tested",
+  "P1-005 research experiment registry (immutable records, failed preserved, final-test data protection enforced) built and tested",
+  "P1-006 historical alternative-data storage (dual-clock immutable events, point-in-time snapshots by published_at, no current-value read so backtests structurally cannot leak) built and tested",
+  "P1-007 regime-conditioned strategy evaluation (causal volatility classifier, per-regime net-of-cost performance that reconciles to the whole-run result) built and tested",
+  "P1-008 robustness and multiple-testing controls (parameter perturbation on a shared world, cost/slippage stress ladders, best-of-N selection-bias correction) built and tested. P1 research factory phase COMPLETE (8/8 tasks DONE)."
+ ],
+ "test_count": 696
+}

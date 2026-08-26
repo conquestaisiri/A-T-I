@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ATI — Trading Intelligence Terminal</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%230a0f1a'/><path d='M2 11l4-5 3 3 5-6' stroke='%235b8def' stroke-width='2' fill='none'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+/* ═══════════════ DESIGN TOKENS ═══════════════ */
+:root{--bg0:#04070d;--bg1:#0a0f1a;--bg2:#0f1725;--bg3:#141e30;--bg4:#1a2839;
+--bd:#141d30;--bd2:#1e2c45;--tx1:#dbe4f0;--tx2:#7a8aa0;--tx3:#3d4a60;
+--grn:#00e5a0;--grn2:rgba(0,229,160,.1);--grn3:rgba(0,229,160,.25);
+--red:#ff4757;--red2:rgba(255,71,87,.1);--red3:rgba(255,71,87,.25);
+--blu:#5b8def;--blu2:rgba(91,141,239,.1);--blu3:rgba(91,141,239,.3);
+--cyn:#00d4aa;--cyn2:rgba(0,212,170,.08);--amb:#ffb820;--amb2:rgba(255,184,32,.1);
+--pur:#b06aff;--pur2:rgba(176,106,255,.08);
+--fu:'Inter',system-ui,sans-serif;--fm:'JetBrains Mono',Consolas,monospace;
+--r:5px;--r2:8px;--tr:.2s cubic-bezier(.4,0,.2,1)}
+*{box-sizing:border-box;margin:0;padding:0}
+::selection{background:rgba(91,141,239,.3)}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-thumb{background:#1e2c45;border-radius:2px}
+body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased;overflow:hidden}
+
+/* ═══ ANIMATIONS ═══ */
+@keyframes fg{0%{background:rgba(0,229,160,.15)}100%{background:transparent}}
+@keyframes fr{0%{background:rgba(255,71,87,.15)}100%{background:transparent}}
+@keyframes pd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+@keyframes si{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes sir{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+@keyframes sp{to{transform:rotate(360deg)}}
+@keyframes nu{from{opacity:.2}to{opacity:1}}
+@keyframes pf{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes bg{0%,100%{border-color:var(--bd)}50%{border-color:var(--blu3)}}
+.fg{animation:fg .5s}.fr{animation:fr .5s}
+.si{animation:si .3s ease-out}.sir{animation:sir .3s ease-out}
+.pd{animation:pd 2s ease-in-out infinite}
+.spin{width:16px;height:16px;border:2px solid var(--bd2);border-top-color:var(--blu);border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 6px}
+
+/* ═══ SHELL ═══ */
+#app{display:grid;grid-template-rows:40px 1fr;height:100vh;overflow:hidden}
+.body{display:grid;grid-template-columns:48px 1fr;overflow:hidden}
+
+/* ═══ TOPBAR ═══ */
+.top{display:flex;align-items:center;padding:0 14px;background:var(--bg1);border-bottom:1px solid var(--bd);gap:16px}
+.top-logo{font-size:12px;font-weight:800;letter-spacing:-.02em}
+.top-logo b{color:var(--blu)}
+.top-sep{width:1px;height:20px;background:var(--bd)}
+.top-price{font-family:var(--fm);font-size:16px;font-weight:700;transition:color .3s,transform .2s}
+.top-price.up{color:var(--grn)}.top-price.down{color:var(--red)}
+.top-chg{font-family:var(--fm);font-size:11px;font-weight:600;padding:1px 5px;border-radius:3px}
+.top-chg.up{color:var(--grn);background:var(--grn2)}
+.top-chg.down{color:var(--red);background:var(--red2)}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.top-pill{font-size:9px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:3px;text-transform:uppercase}
+.top-clock{font-family:var(--fm);font-size:11px;color:var(--tx3)}
+.ws-ind{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--tx3)}
+.ws-dot{width:5px;height:5px;border-radius:50%}
+.ws-dot.on{background:var(--grn);box-shadow:0 0 4px var(--grn)}
+.ws-dot.off{background:var(--red)}
+.ws-flash{animation:pf .3s ease-out alternate}
+
+/* ═══ SIDEBAR ═══ */
+.side{background:var(--bg1);border-right:1px solid var(--bd);display:flex;flex-direction:column}
+.side-nav{flex:1;padding:4px 0}
+.nav-i{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 0;cursor:pointer;color:var(--tx3);transition:all var(--tr);border-left:2px solid transparent;user-select:none}
+.nav-i:hover{color:var(--tx2);background:var(--bg2)}
+.nav-i.on{color:var(--blu);border-left-color:var(--blu);background:rgba(91,141,239,.05)}
+.nav-i svg{width:17px;height:17px}
+.nav-i span{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.side-ft{padding:6px;border-top:1px solid var(--bd);font-size:8px;color:var(--tx3);text-align:center}
+
+/* ═══ CONTENT ═══ */
+.main{overflow-y:auto;padding:10px;display:grid;gap:8px;align-content:start;grid-template-columns:repeat(12,1fr)}
+.v{display:none}.v.on{display:grid;gap:8px;grid-template-columns:repeat(12,1fr);grid-column:1/-1}
+.v.on>.c3{grid-column:span 3}.v.on>.c4{grid-column:span 4}.v.on>.c5{grid-column:span 5}
+.v.on>.c6{grid-column:span 6}.v.on>.c7{grid-column:span 7}.v.on>.c8{grid-column:span 8}
+.v.on>.c9{grid-column:span 9}.v.on>.c12{grid-column:span 12}
+
+/* ═══ PANEL ═══ */
+.pnl{background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden;transition:border-color .2s}
+.pnl:hover{border-color:#1e2c45}
+.pnl-h{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid var(--bd)}
+.pnl-t{font-size:9px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.07em}
+.pnl-b{padding:8px 10px}
+
+/* ═══ KPI ═══ */
+.kpi{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r2);padding:10px 12px}
+.kpi-l{font-size:8px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:3px}
+.kpi-v{font-family:var(--fm);font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1.1;animation:nu .3s}
+.kpi-s{font-size:9px;color:var(--tx3);margin-top:2px}
+
+/* ═══ TABLE ═══ */
+.tb{width:100%;border-collapse:collapse;font-size:11px}
+.tb th{text-align:left;padding:4px 7px;font-size:8px;font-weight:700;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--bd);position:sticky;top:0;background:var(--bg1);z-index:1}
+.tb td{padding:4px 7px;border-bottom:1px solid rgba(255,255,255,.02)}
+.tb tbody tr:hover{background:var(--bg3)}
+.tb .n{text-align:right;font-family:var(--fm);font-variant-numeric:tabular-nums}
+.tb th.n{text-align:right}
+.tsc{overflow-y:auto;max-height:260px}
+
+/* ═══ PILLS ═══ */
+.pl{display:inline-flex;align-items:center;padding:1px 6px;border-radius:3px;font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.pl-g{background:var(--grn2);color:var(--grn)}.pl-r{background:var(--red2);color:var(--red)}
+.pl-a{background:var(--amb2);color:var(--amb)}.pl-b{background:var(--blu2);color:var(--blu)}
+.pl-p{background:var(--pur2);color:var(--pur)}.pl-c{background:var(--cyn2);color:var(--cyn)}
+.pl-gy{background:rgba(61,74,96,.2);color:var(--tx3)}
+
+/* ═══ BTN ═══ */
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 14px;border-radius:var(--r);border:none;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;font-family:var(--fu)}
+.btn-p{background:var(--blu);color:#fff}.btn-p:hover{filter:brightness(1.2);transform:translateY(-1px)}
+.btn-g{background:transparent;color:var(--tx2);border:1px solid var(--bd)}.btn-g:hover{color:var(--tx1);border-color:var(--bd2)}
+
+/* ═══ INPUT ═══ */
+.in{width:100%;background:var(--bg0);color:var(--tx1);border:1px solid var(--bd);border-radius:var(--r);padding:6px 10px;font-size:12px;font-family:var(--fu);outline:none;transition:border .2s}
+.in:focus{border-color:var(--blu)}
+.in::placeholder{color:var(--tx3)}
+
+/* ═══ STATES ═══ */
+.emp{text-align:center;padding:20px 10px;color:var(--tx3);font-size:11px}
+.emp i{font-size:20px;display:block;margin-bottom:4px;opacity:.4;font-style:normal}
+.ld{text-align:center;padding:20px;color:var(--tx3)}
+.sp{width:14px;height:14px;border:2px solid var(--bd2);border-top-color:var(--blu);border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 4px}
+
+/* ═══ EVENT STREAM ═══ */
+.es{font-family:var(--fm);font-size:10px;line-height:1.7;max-height:300px;overflow-y:auto;padding-right:4px}
+.es-r{display:flex;gap:5px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.02);animation:sir .25s ease-out}
+.es-r .t{color:var(--tx3);flex-shrink:0;width:55px;font-weight:600}
+.es-r .tag{flex-shrink:0;width:55px;font-weight:600}
+.es-r .m{color:var(--tx2);flex-grow:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.es-r .tc{color:var(--cyn)}
+.es .es-empty{padding:8px;color:var(--tx3);font-style:italic;text-align:center}
+
+/* ═══ ORDER BOOK ═══ */
+.ob{font-family:var(--fm);font-size:10px}
+.ob-r{display:grid;grid-template-columns:1fr 1fr 1fr;padding:1px 4px;position:relative}
+.ob-r .bar{position:absolute;top:0;bottom:0;right:0;opacity:.07;transition:width .3s}
+.ob-r .p,.ob-r .q,.ob-r .sz{position:relative;z-index:1}
+.ob-b .p{color:var(--grn)}.ob-a .p{color:var(--red)}
+.ob-mid{text-align:center;padding:3px;font-family:var(--fm);font-size:12px;font-weight:700;border-top:1px solid var(--bd2);border-bottom:1px solid var(--bd2);margin:2px 0}
+
+/* ═══ CHART ═══ */
+.chw{position:relative;width:100%}
+.chw>div{position:absolute;inset:0}
+
+/* ═══ AI PANEL ═══ */
+.ai-act{font-size:18px;font-weight:800;letter-spacing:-.02em}
+.ai-cf{display:flex;align-items:center;gap:6px;margin:4px 0}
+.ai-cf-bar{flex:1;height:3px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.ai-cf-fill{height:100%;border-radius:2px;transition:width .8s cubic-bezier(.4,0,.2,1)}
+.ai-evi{margin-top:6px}
+.ai-evi-i{display:flex;align-items:center;gap:4px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.02);font-size:10px}
+.ai-rat{margin-top:5px;font-size:10px;color:var(--tx2);line-height:1.4}
+
+/* ═══ RISK BAR ═══ */
+.rk-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-top:3px}
+.rk-fill{height:100%;border-radius:2px;transition:width .6s ease-out}
+
+/* ═══ MARKET HDR ═══ */
+.mkt-h{display:flex;align-items:center;gap:14px;padding:6px 12px;background:var(--bg2);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.mkt-p{font-family:var(--fm);font-size:14px;font-weight:700}
+.mkt-pr{font-family:var(--fm);font-size:18px;font-weight:700;transition:color .2s}
+.mkt-s{display:flex;gap:12px;font-size:10px;color:var(--tx2)}
+.mkt-s>div{display:flex;flex-direction:column}
+.mkt-s .l{font-size:8px;color:var(--tx3);text-transform:uppercase}
+.mkt-s .v{font-family:var(--fm);font-weight:600}
+
+/* ═══ SELECT ═══ */
+.sel{background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:var(--r);padding:4px 8px;font-size:11px;font-family:var(--fu);outline:none;cursor:pointer}
+.sel:focus{border-color:var(--blu)}
+
+/* ═══ UTIL ═══ */
+.mono{font-family:var(--fm)}
+.tg{color:var(--grn)}.tr{color:var(--red)}.tb{color:var(--blu)}.ta{color:var(--amb)}.tc{color:var(--cyn)}.tm{color:var(--tx3)}
+</style>
+</head>
+<body>
+<div id="app">
+<!-- ═══ TOPBAR ═══ -->
+<div class="top">
+  <span class="top-logo">ATI<b>·</b>Trading Intelligence</span>
+  <div class="top-sep"></div>
+  <span class="top-price" :class="priceDir" v-text="priceFmt"></span>
+  <span class="top-chg" :class="priceDir" v-text="priceChg"></span>
+  <span v-if="priceStale" class="pl pl-r pd">STALE FEED</span>
+  <div class="top-right" style="margin-left:auto">
+    <div class="ws-ind"><span class="ws-dot" :class="wsConnected ? 'on' : 'off'"></span><span v-text="wsConnected ? 'LIVE' : 'OFF'"></span></div>
+    <span class="top-pill" :class="paperMode ? 'pl-a' : 'pl-r'" style="background:var(--amb2);color:var(--amb);border:1px solid rgba(255,184,32,.3)" v-text="paperMode ? 'PAPER' : 'LIVE'"></span>
+    <span class="top-clock" v-text="clock"></span>
+  </div>
+</div>
+
+<div class="body">
+<!-- ═══ SIDEBAR ═══ -->
+<div class="side">
+  <div class="side-nav">
+    <div class="nav-i" :class="{on:view==='trading'}" @click="view='trading'">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" style="width:17px;height:17px"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></svg>
+      <span>Trading</span>
+    </div>
+    <div class="nav-i" :class="{on:view==='intel'}" @click="view='intel'">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" style="width:17px;height:17px"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/></svg>
+      <span>AI Brain</span>
+    </div>
+    <div class="nav-i" :class="{on:view==='portfolio'}" @click="view='portfolio'">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" style="width:17px;height:17px"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3"/></svg>
+      <span>Portfolio</span>
+    </div>
+    <div class="nav-i" :class="{on:view==='risk'}" @click="view='risk'">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" style="width:17px;height:17px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/></svg>
+      <span>Risk</span>
+    </div>
+    <div class="nav-i" :class="{on:view==='forex'}" @click="view='forex'">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" style="width:17px;height:17px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/></svg>
+      <span>MT5 Forex</span>
+    </div>
+    <div class="nav-i" :class="{on:view==='system'}" @click="view='system'">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" style="width:17px;height:17px"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63"/></svg>
+      <span>System</span>
+    </div>
+  </div>
+  <div class="side-ft">
+    <span class="pd" style="display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--grn);margin-right:3px"></span>
+    <span v-text="sysStatus"></span>
+  </div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+
+<!-- ═══ TRADING VIEW ═══ -->
+<div class="v" :class="{on:view==='trading'}">
+  <!-- Pair selector + timeframe -->
+  <div class="c12" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:4px 0">
+    <select class="sel mono" v-model="pair" @change="loadKlines" style="width:150px;font-weight:600">
+      <option v-for="p in topPairs" :key="p" :value="p" v-text="p.replace('USDT','/USDT')"></option>
+    </select>
+    <input class="in" v-model="pairSearch" @keyup.enter="selectSearchPair()" placeholder="Search all pairs, Enter to load…" style="width:200px">
+    <button class="btn btn-g" @click="selectSearchPair()" style="padding:3px 8px;font-size:10px">GO</button>
+    <span class="pl pl-gy" v-if="allPairs.length" v-text="allPairs.length + ' pairs'"></span>
+    <div style="display:flex;gap:2px">
+      <button v-for="tf in timeframes" :key="tf" class="btn btn-g" :class="{active:timeframe===tf}"
+        @click="timeframe=tf;loadKlines()" style="padding:3px 8px;font-size:10px" v-text="tf"></button>
+    </div>
+    <span class="pl pl-c">MEXC Live</span>
+  </div>
+
+  <!-- Candlestick Chart -->
+  <div class="c8">
+    <div class="pnl"><div style="position:relative;height:380px" ref="chartEl"></div></div>
+  </div>
+
+  <!-- Order Book + AI -->
+  <div class="c4" style="display:grid;gap:8px;grid-template-rows:auto 1fr">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">Order Book</span><span class="pl pl-c">MEXC</span></div>
+      <div style="padding:2px 0" v-html="orderBookHtml"></div>
+    </div>
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">AI Decision</span><span class="pl pl-p">Omega</span></div>
+      <div style="padding:8px 10px" v-if="latestDecision">
+        <div style="display:flex;gap:12px;margin-bottom:6px">
+          <div><div style="font-size:8px;color:var(--tx3)">ACTION</div>
+          <div class="ai-act" :style="{color:decisionColor}" v-text="latestDecision.action"></div></div>
+          <div><div style="font-size:8px;color:var(--tx3)">CONF</div>
+            <div class="ai-cf"><div class="ai-cf-bar"><div class="ai-cf-fill" :style="{width:latestDecision.conf*100+'%',background:decisionColor}"></div></div>
+            <span class="mono" style="font-weight:700;font-size:14px" v-text="Math.round(latestDecision.conf*100)+'%'"></span></div></div>
+        </div>
+        <div class="ai-rat" v-text="latestDecision.rationale"></div>
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <button class="btn btn-p" @click="drivePipeline" :disabled="driving" style="flex:1;font-size:10px;padding:5px">
+            <span v-if="driving" class="spin" style="width:11px;height:11px;margin:0;border-width:1.5px"></span>
+            <span v-else v-text="'⚡ Drive /v1/drive'"></span>
+          </button>
+        </div>
+        <div v-if="driveResult" class="mono si" style="margin-top:6px;font-size:9px;padding:4px 6px;background:var(--bg0);border-radius:4px;color:var(--cyn)" v-text="driveResult"></div>
+      </div>
+      <div style="padding:8px 10px" v-else><div class="emp"><i>🧠</i>Waiting for AI decision…</div></div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="c12">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      <div class="kpi"><div class="kpi-l">EQUITY</div><div class="kpi-v" v-text="fmt(equity)"></div><div class="kpi-s">USDT</div></div>
+      <div class="kpi"><div class="kpi-l">POSITIONS</div><div class="kpi-v" v-text="Object.keys(positions).length"></div><div class="kpi-s">open</div></div>
+      <div class="kpi"><div class="kpi-l">TOTAL PNL</div><div class="kpi-v" :class="pnlCls(totalPnl)" v-text="fmt(totalPnl,4)"></div><div class="kpi-s">realized</div></div>
+      <div class="kpi"><div class="kpi-l">AI SIGNALS</div><div class="kpi-v" v-text="proposalCount"></div><div class="kpi-s">total</div></div>
+    </div>
+  </div>
+
+  <!-- Trade Tape + Positions -->
+  <div class="c6">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">Trade Tape</span><span class="pl pl-c">MEXC Live</span></div>
+      <div class="tsc"><table class="tb"><thead><tr><th class="n">Price</th><th class="n">Qty</th><th>Side</th><th>Time</th></tr></thead><tbody>
+        <tr v-for="t in mexcTrades" :key="t.id" class="si">
+          <td class="n mono" :class="t.isBuy?'tg':'tr'" v-text="fmt(t.price)"></td>
+          <td class="n mono" v-text="fmt(t.qty,4)"></td>
+          <td :class="t.isBuy?'tg':'tr'" v-text="t.isBuy?'BUY':'SELL'"></td>
+          <td class="mono" style="font-size:9px;color:var(--tx3)" v-text="t.time"></td>
+        </tr>
+      </tbody></table></div>
+    </div>
+  </div>
+  <div class="c6">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">Open Positions</span>
+        <button v-if="Object.keys(positions).length" class="btn btn-g" @click="flattenAll()" :disabled="busyControl" style="padding:2px 8px;font-size:9px;color:var(--red);border-color:var(--red3)">FLATTEN ALL</button>
+      </div>
+      <div class="pnl-b" v-if="Object.keys(positions).length===0"><div class="emp"><i>📊</i>No open positions<br><small>AI enters when signals justify it</small></div></div>
+      <div class="tsc" v-else><table class="tb"><thead><tr><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Entry</th><th></th></tr></thead><tbody>
+        <tr v-for="(p,sym) in positions" :key="sym"><td v-text="sym"></td><td :class="p.side==='buy'?'tg':'tr'" v-text="p.side"></td><td class="n mono" v-text="fmt(p.quantity,6)"></td><td class="n mono" v-text="fmt(p.entry)"></td>
+        <td style="text-align:right"><button class="btn btn-g" @click="closePosition(sym)" :disabled="busyControl" style="padding:1px 7px;font-size:9px;color:var(--amb)">CLOSE</button></td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <!-- Risk -->
+  <div class="c6">
+    <div class="pnl">
+      <div class="pnl-h"><span class="pnl-t">Risk Monitor</span><span class="pl" :class="riskPillCls" v-text="riskPillText"></span></div>
+      <div class="pnl-b">
+        <div v-for="r in riskRows" :key="r.label" style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+          <span style="color:var(--tx2)" v-text="r.label"></span>
+          <div style="display:flex;align-items:center;gap:8px"><span class="mono" :class="r.warn?'ta':''" style="font-weight:500" v-text="r.val"></span>
+          <div class="rk-bar" style="width:60px"><div class="rk-fill" :style="{width:r.pct+'%',background:r.color}"></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="c6">
+    <div class="pnl">
+      <div class="pnl-h"><span class="panel-t">Event Stream</span></div>
+      <div style="padding:4px 8px"><div class="es" style="max-height:200px">
+        <div class="es-r" v-for="e in events" :key="e.ts+e.type"><span class="t" v-text="e.time"></span><span class="tag" :class="e.cls" v-text="e.type"></span><span class="m" v-text="e.msg"></span></div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ AI BRAIN VIEW ═══ -->
+<div class="v" :class="{on:view==='intel'}">
+  <div class="c12"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">AI Decision Stream</span><span class="pl pl-p">Omega Chain · Live</span></div>
+    <div class="pnl-b">
+      <div v-if="!proposals.length" class="emp"><i>🧠</i>Start paper mode to see AI decisions streaming</div>
+      <div v-else style="max-height:500px;overflow-y:auto">
+        <div v-for="(p,i) in proposals" :key="p.proposal_id" class="si" style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.03);animation-delay:Math.min(i*0.03,0.5)+'s'">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="mono" style="color:var(--tx3);font-size:10px" v-text="timeShort(p.created_at)"></span>
+            <span class="pl" :class="decisionPillCls(p)" v-text="decisionText(p)"></span>
+            <span class="mono" style="font-size:10px;color:var(--tx2)" v-text="'conf '+(p.confidence*100).toFixed(0)+'%'"></span>
+          </div>
+          <div style="font-size:10px;color:var(--tx3);margin-top:2px;padding-left:50px" v-text="p.rationale"></div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ PORTFOLIO VIEW ═══ -->
+<div class="v" :class="{on:view==='portfolio'}">
+  <div class="c12"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+    <div class="kpi"><div class="kpi-l">TOTAL EQUITY</div><div class="kpi-v" v-text="fmt(equity)"></div></div>
+    <div class="kpi"><div class="kpi-l">UNREALIZED PNL</div><div class="kpi-v" v-text="fmt(unrealPnl,4)"></div></div>
+    <div class="kpi"><div class="kpi-l">REALIZED PNL</div><div class="kpi-v" :class="pnlCls(realizedPnl)" v-text="fmt(realizedPnl,4)"></div></div>
+    <div class="kpi"><div class="kpi-l">EXPOSURE</div><div class="kpi-v" v-text="exposurePct"></div></div>
+  </div></div>
+  <div class="c12"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Trade Ledger</span></div>
+    <div class="tsc" style="max-height:450px"><table class="tb"><thead><tr><th>ID</th><th>Symbol</th><th>Side</th><th class="n">Qty</th><th class="n">Entry</th><th class="n">Exit</th><th class="n">Fee</th><th class="n">PnL</th><th>Status</th></tr></thead><tbody>
+      <tr v-if="!ledger.length"><td colspan="9" class="emp">No trades yet — AI enters when signals justify it</td></tr>
+      <tr v-for="t in ledger" :key="t.trade_id">
+        <td class="mono" v-text="t.trade_id"></td><td v-text="t.symbol"></td><td v-text="t.side"></td>
+        <td class="n mono" v-text="fmt(t.quantity,6)"></td><td class="n mono" v-text="fmt(t.entry_price)"></td>
+        <td class="n mono" v-text="t.exit_price?fmt(t.exit_price):'—'"></td>
+        <td class="n mono" v-text="t.fee?fmt(t.fee,4):'—'"></td>
+        <td class="n mono" :class="pnlCls(t.realized_pnl)" v-text="t.realized_pnl!=null?fmt(t.realized_pnl,4):'—'"></td>
+        <td><span class="pl" :class="t.status==='open'?'pl-a':t.realized_pnl>0?'pl-g':'pl-r'" v-text="t.status"></span></td>
+      </tr>
+    </tbody></table></div>
+  </div></div>
+</div>
+
+<!-- ═══ RISK VIEW ═══ -->
+<div class="v" :class="{on:view==='risk'}">
+  <div class="c12"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+    <div class="kpi"><div class="kpi-l">DAILY LOSS</div><div class="kpi-v" v-text="fmt(risk.daily_loss_pct*100,2)+'%'"></div><div class="rk-bar"><div class="rk-fill" :style="riskBarStyle(risk.daily_loss_pct/0.06)"></div></div></div>
+    <div class="kpi"><div class="kpi-l">DRAWDOWN</div><div class="kpi-v" v-text="fmt(risk.drawdown_pct*100,2)+'%'"></div><div class="rk-bar"><div class="rk-fill" :style="riskBarStyle(risk.drawdown_pct/0.20)"></div></div></div>
+    <div class="kpi"><div class="kpi-l">EXPOSURE</div><div class="kpi-v" v-text="fmt(risk.open_exposure_pct*100,2)+'%'"></div><div class="rk-bar"><div class="rk-fill" :style="riskBarStyle(risk.open_exposure_pct/0.60)"></div></div></div>
+    <div class="kpi"><div class="kpi-l">BUDGET USED</div><div class="kpi-v" v-text="fmt(riskBudgetPct,1)+'%'"></div><div class="rk-bar"><div class="rk-fill" :style="riskBarStyle(riskBudgetPct/100)"></div></div></div>
+  </div></div>
+  <div class="c12"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Risk Metrics</span><span class="pl" :class="riskPillCls" v-text="riskPillText"></span></div>
+    <div class="pnl-b">
+      <div v-for="r in riskDetailRows" :key="r.l" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+        <span style="color:var(--tx2)" v-text="r.l"></span><span class="mono" :class="r.w?'ta':''" v-text="r.v"></span>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ FOREX VIEW ═══ -->
+<div class="v" :class="{on:view==='forex'}">
+  <div class="c12"><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+    <div class="kpi"><div class="kpi-l">MT5 BALANCE</div><div class="kpi-v" v-text="fmt(mt5.balance)"></div></div>
+    <div class="kpi"><div class="kpi-l">MT5 EQUITY</div><div class="kpi-v" v-text="fmt(mt5.equity)"></div></div>
+    <div class="kpi"><div class="kpi-l">FREE MARGIN</div><div class="kpi-v" v-text="fmt(mt5.free_margin)"></div></div>
+    <div class="kpi"><div class="kpi-l">POSITIONS</div><div class="kpi-v" v-text="mt5Positions.length"></div></div>
+  </div></div>
+  <div class="c6"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">MT5 Account</span>
+      <span class="pl" :class="(mt5.server||'').toLowerCase().includes('demo') ? 'pl-a' : 'pl-r'" v-text="(mt5.server||'').toLowerCase().includes('demo') ? 'DEMO' : 'LIVE'"></span>
+    </div>
+    <div class="pnl-b">
+      <div v-for="r in mt5AccountRows" :key="r.l" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+        <span style="color:var(--tx2)" v-text="r.l"></span><span class="mono" v-text="r.v"></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="c6"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Forex Rates (MT5 Live)</span></div>
+    <div class="pnl-b">
+      <div v-for="r in mt5Rates" :key="r.pair" style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+        <span class="mono" style="font-weight:600" v-text="r.pair"></span>
+        <span class="mono"><span class="tr" v-text="r.bid"></span> / <span class="tg" v-text="r.ask"></span></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="c12"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">MT5 Open Positions</span></div>
+    <div class="pnl-b" v-if="!mt5Positions.length"><div class="emp"><i>📈</i>No open MT5 positions</div></div>
+    <div class="tsc" v-else><table class="tb"><thead><tr><th>Ticket</th><th>Symbol</th><th>Side</th><th class="n">Volume</th><th class="n">Open Price</th><th class="n">Current</th><th class="n">SL</th><th class="n">TP</th><th class="n">PnL</th></tr></thead><tbody>
+      <tr v-for="p in mt5Positions" :key="p.ticket">
+        <td class="mono" v-text="p.ticket"></td>
+        <td v-text="p.symbol"></td>
+        <td :class="String(p.type)==='0' ? 'tg' : 'tr'" v-text="String(p.type)==='0' ? 'BUY' : 'SELL'"></td>
+        <td class="n mono" v-text="fmt(p.volume,2)"></td>
+        <td class="n mono" v-text="fmt(p.price_open,5)"></td>
+        <td class="n mono" v-text="fmt(p.price_current,5)"></td>
+        <td class="n mono" v-text="p.sl ? fmt(p.sl,5) : '—'"></td>
+        <td class="n mono" v-text="p.tp ? fmt(p.tp,5) : '—'"></td>
+        <td class="n mono" :class="p.pnlCls" v-text="fmt(p.profit,2)"></td>
+      </tr>
+    </tbody></table></div>
+  </div></div>
+</div>
+
+<!-- ═══ SYSTEM VIEW ═══ -->
+<div class="v" :class="{on:view==='system'}">
+  <div class="c6"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Supervisor</span></div>
+    <div class="pnl-b">
+      <div style="margin-bottom:8px;display:flex;align-items:center;gap:10px">
+        <span class="pd" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--grn)"></span>
+        <span style="font-size:15px;font-weight:700;margin-left:2px;text-transform:capitalize" v-text="sysStatus"></span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-g" @click="killSwitch()" :disabled="busyControl" style="padding:4px 12px;font-size:10px;color:var(--red);border-color:var(--red3)">⛔ KILL</button>
+          <button class="btn btn-g" @click="releaseSwitch()" :disabled="busyControl" style="padding:4px 12px;font-size:10px;color:var(--grn);border-color:var(--grn3)">✓ RELEASE</button>
+        </div>
+      </div>
+      <div style="color:var(--tx2);font-size:11px" v-text="sysReason || 'All systems nominal.'"></div>
+      <div v-if="controlMsg" class="mono si" style="margin-top:6px;font-size:10px;padding:4px 6px;background:var(--bg0);border-radius:4px;color:var(--cyn)" v-text="controlMsg"></div>
+    </div>
+  </div></div>
+  <div class="c6"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Risk Limits (Live Tuning)</span><span class="pl pl-b">runtime</span></div>
+    <div class="pnl-b">
+      <div v-for="k in ['max_risk_per_trade_pct','max_daily_loss_pct','max_drawdown_pct']" :key="k" style="display:flex;align-items:center;gap:8px;padding:3px 0">
+        <span style="flex:1;font-size:10px;color:var(--tx2)" v-text="k.replace(/max_|_pct/g,'').replace(/_/g,' ')"></span>
+        <span class="mono tm" style="font-size:9px" v-text="(riskConfig[k]*100||0).toFixed(1)+'%'"></span>
+        <input class="in mono" :id="'rc-'+k" type="number" step="0.001" min="0" max="1" :placeholder="(riskConfig[k]||0).toString()" style="width:90px;padding:3px 6px;font-size:11px">
+      </div>
+      <button class="btn btn-p" @click="saveRiskConfig()" :disabled="busyControl" style="width:100%;margin-top:6px;padding:5px;font-size:10px">APPLY RISK LIMITS</button>
+    </div>
+  </div></div>
+  <div class="c6"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Connections</span></div>
+    <div class="pnl-b">
+      <div v-for="c in connections" :key="c.name" style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03)">
+        <span style="color:var(--tx2)" v-text="c.name"></span>
+        <span style="display:flex;align-items:center;gap:4px"><span class="pd" style="width:5px;height:5px;border-radius:50%" :style="{background:c.ok?'var(--grn)':'var(--red)'}"></span><span class="mono" style="font-size:10px" v-text="c.note"></span></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="c12"><div class="pnl">
+    <div class="pnl-h"><span class="pnl-t">Event Stream</span></div>
+    <div style="padding:4px 10px"><div class="es" style="max-height:350px">
+      <div class="es-r" v-for="e in events" :key="e.ts+e.type"><span class="t" v-text="e.time"></span><span class="tag" :class="e.cls" v-text="e.source"></span><span class="m" v-text="e.msg"></span></div>
+    </div></div>
+  </div></div>
+</div>
+
+</div></div>
+</div>
+
+<script>
+const {createApp, ref, computed, onMounted, watch, nextTick} = Vue;
+
+createApp({
+  setup() {
+    // ═══ STATE ═══
+    const view = ref('trading');
+    const pair = ref('BTCUSDT');
+    const timeframe = ref('60m');
+    const pairSearch = ref('');
+    const equity = ref(10000);
+    const positions = ref({});
+    const price = ref(null);
+    const prevPrice = ref(null);
+    const priceDir = ref('');
+    const priceFmt = ref('—');
+    const priceChg = ref('—');
+    const wsConnected = ref(false);
+    const paperMode = ref(true);
+    const clock = ref('');
+    const sysStatus = ref('connecting');
+    const sysReason = ref('');
+    const proposals = ref([]);
+    const ledger = ref([]);
+    const mexcTrades = ref([]);
+    const orderBookHtml = ref('<div class="ld"><div class="sp"></div></div>');
+    const latestDecision = ref(null);
+    const mt5 = ref({balance:0, equity:0, free_margin:0});
+    const mt5Positions = ref([]);
+    const mt5Rates = ref([]);
+    const risk = ref({daily_loss_pct:0, drawdown_pct:0, open_exposure_pct:0, total_loss_pct:0, monthly_loss_pct:0, position_count:0, symbol_risk_used_pct:0, portfolio_risk_used_pct:0});
+    const events = ref([]);
+    const allPairs = ref([]);
+    const chartEl = ref(null);
+    const proposalCount = ref(0);
+    const driving = ref(false);
+    const driveResult = ref('');
+    const priceStale = ref(false);
+    const killEngaged = ref(false);
+    const supervisorStatus = ref('connecting');
+    const riskConfig = ref({});
+    const busyControl = ref(false);
+    const controlMsg = ref('');
+
+    let chart = null, candleSeries = null, volSeries = null;
+    let wsMain = null, wsMarket = null;
+
+    // ═══ COMPUTED ═══
+    const topPairs = computed(() => ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','DOGEUSDT']);
+    const totalPnl = computed(() => realizedPnl.value + unrealPnl.value);
+    const unrealPnl = computed(() => {
+      let pnl = 0;
+      const p = price.value;
+      for (const [sym, pos] of Object.entries(positions.value)) {
+        if (!p || sym.toUpperCase() !== pair.value) continue;
+        const sign = pos.side === 'buy' ? 1 : -1;
+        pnl += sign * (p - pos.entry) * pos.quantity;
+      }
+      return pnl;
+    });
+    const realizedPnl = computed(() => ledger.value.filter(t => t.status === 'closed').reduce((s,t) => s + (t.realized_pnl || 0), 0));
+    const exposurePct = computed(() => (risk.value.open_exposure_pct * 100).toFixed(2) + '%');
+    const riskBudgetPct = computed(() => Math.min(Math.max(risk.value.daily_loss_pct/0.005, risk.value.drawdown_pct/0.20) * 100, 100));
+    const riskPillCls = computed(() => riskBudgetPct.value > 80 ? 'pl-r' : riskBudgetPct.value > 40 ? 'pl-a' : 'pl-g');
+    const riskPillText = computed(() => riskBudgetPct.value > 80 ? 'HIGH RISK' : riskBudgetPct.value > 40 ? 'ELEVATED' : 'NOMINAL');
+    const riskDetailRows = computed(() => [
+      {l:'Account Equity', v:fmt(equity.value), w:false},
+      {l:'Daily Loss', v:(risk.value.daily_loss_pct*100).toFixed(4)+'%', w:risk.value.daily_loss_pct > .003},
+      {l:'Monthly Loss', v:(risk.value.monthly_loss_pct*100).toFixed(4)+'%', w:risk.value.monthly_loss_pct > .008},
+      {l:'Drawdown', v:(risk.value.drawdown_pct*100).toFixed(4)+'%', w:risk.value.drawdown_pct > .015},
+      {l:'Total Loss', v:(risk.value.total_loss_pct*100).toFixed(4)+'%', w:risk.value.total_loss_pct > .03},
+      {l:'Open Exposure', v:(risk.value.open_exposure_pct*100).toFixed(2)+'%', w:risk.value.open_exposure_pct > .04},
+      {l:'Position Count', v:risk.value.position_count, w:false},
+    ]);
+    const mt5AccountRows = computed(() => [
+      {l:'Login', v: mt5.value.login != null ? String(mt5.value.login) : '—'},
+      {l:'Server', v: mt5.value.server || 'MetaQuotes-Demo'},
+      {l:'Currency', v: mt5.value.currency || 'USD'},
+      {l:'Leverage', v: mt5.value.leverage ? '1:' + mt5.value.leverage : '—'},
+      {l:'Margin Level', v: mt5.value.margin_level != null ? fmt(mt5.value.margin_level) + '%' : '—'},
+      {l:'Trade Allowed', v: mt5.value.trade_allowed ? 'YES' : 'NO'},
+    ]);
+    const decisionColor = computed(() => {
+      const a = latestDecision.value?.action || '';
+      return a.includes('long') ? 'var(--grn)' : a.includes('short') ? 'var(--red)' : 'var(--tx2)';
+    });
+    const decisionPillCls = computed(() => (p) => {
+      const acts = p?.actions || [];
+      const a = acts[0]?.action_type || '';
+      if (a.includes('enter_long') || a.includes('scale_in')) return 'pl-g';
+      if (a.includes('enter_short')) return 'pl-r';
+      if (a.includes('exit') || a.includes('scale_out')) return 'pl-a';
+      return 'pl-gy';
+    });
+    const decisionText = computed(() => (p) => {
+      const acts = p?.actions || [];
+      return (acts[0]?.action_type || 'stand_aside').replace(/_/g, ' ');
+    });
+
+    // ═══ HELPERS ═══
+    const fmt = (v, dp=2) => v == null ? '—' : Number(v).toLocaleString(undefined,{minimumFractionDigits:dp,maximumFractionDigits:dp});
+    const pnlCls = v => v > 0 ? 'tg' : v < 0 ? 'tr' : '';
+    const timeShort = iso => { if(!iso) return '—'; return new Date(iso).toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}); };
+    const riskBarStyle = ratio => {
+      const pct = Math.min(ratio * 100, 100);
+      const color = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--amb)' : 'var(--grn)';
+      return {width: pct + '%', background: color};
+    };
+
+    // ═══ API ═══
+    const api = {
+      async get(path) { const r = await fetch(path); if (!r.ok) throw new Error(r.status); return r.json(); },
+      async post(path, body) { const r = await fetch(path, {method:'POST',headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}); if (!r.ok) throw new Error(r.status); return r.json(); }
+    };
+
+    // ═══ DATA LOADERS ═══
+    async function loadCore() {
+      try {
+        const sim = await api.get('/v1/simulator');
+        equity.value = sim.equity;
+        positions.value = sim.positions || {};
+        if (sim.risk) risk.value = sim.risk;
+
+        const sup = await api.get('/v1/supervisor/status');
+        sysStatus.value = sup.status;
+        sysReason.value = sup.reason || '';
+
+        // Price from MEXC
+        const tick = await api.get(`/v1/market/ticker?symbol=${pair.value}`);
+        if (tick.price) {
+          const p = parseFloat(tick.price);
+          prevPrice.value = price.value;
+          price.value = p;
+          priceDir.value = prevPrice.value != null ? (p >= prevPrice.value ? 'up' : 'down') : '';
+          priceFmt.value = fmt(p);
+          const chg = prevPrice.value != null ? ((p - prevPrice.value) / prevPrice.value * 100) : 0;
+          priceChg.value = `${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%`;
+        }
+
+        // Proposals count
+        const props = await api.get(`/v1/proposals/recent?symbol=${pair.value}&limit=100`);
+        proposalCount.value = (props.proposals || []).length;
+        proposals.value = props.proposals || [];
+
+        // Latest decision for AI panel
+        if (proposals.value.length > 0) {
+          const p = proposals.value[0];
+          latestDecision.value = {
+            action: p.actions?.[0]?.action_type || 'stand_aside',
+            conf: p.confidence || 0,
+            rationale: p.rationale || '',
+          };
+        }
+      } catch(e) { console.error('Core:', e); }
+    }
+
+    async function loadKlines() {
+      try {
+        const kl = await api.get(`/v1/market/klines?symbol=${pair.value}&interval=${timeframe.value}&limit=200`);
+        if (kl.candles?.length && candleSeries) {
+          candleSeries.setData(kl.candles.map(c => ({
+            time: Math.floor(c.time/1000), open:c.open, high:c.high, low:c.low, close:c.close
+          })));
+          volSeries.setData(kl.candles.map(c => ({
+            time: Math.floor(c.time/1000), value: c.volume,
+            color: c.close >= c.open ? 'rgba(0,229,160,.3)' : 'rgba(255,71,87,.3)'
+          })));
+          chart.timeScale().fitContent();
+          if (kl.candles.length) {
+            const last = kl.candles[kl.candles.length-1];
+            price.value = last.close;
+            priceFmt.value = fmt(last.close);
+          }
+        }
+      } catch(e) { console.error('Klines:', e); }
+    }
+
+    async function loadOrderBook() {
+      try {
+        const depth = await api.get(`/v1/market/depth?symbol=${pair.value}&limit=8`);
+        const bids = (depth.bids || []).slice(0, 6);
+        const asks = (depth.asks || []).slice(0, 6).reverse();
+        const maxQty = Math.max(...bids.map(b => Number(b[1]) || 0), ...asks.map(a => Number(a[1]) || 0), 1);
+        let html = '';
+        for (const [p, q] of asks) {
+          const w = (Number(q)/maxQty*100).toFixed(0);
+          html += `<div class="ob-r ob-a"><div class="bar" style="width:${w}%;background:var(--red)"></div><span class="p">${Number(p).toFixed(2)}</span><span class="q">${Number(q).toFixed(4)}</span></div>`;
+        }
+        html += `<div class="ob-mid">${bids.length ? Number(bids[0][0]).toFixed(2) : '—'}</div>`;
+        for (const [p, q] of bids) {
+          const w = (Number(q)/maxQty*100).toFixed(0);
+          html += `<div class="ob-r ob-b"><div class="bar" style="width:${w}%;background:var(--grn)"></div><span class="p">${Number(p).toFixed(2)}</span><span class="q">${Number(q).toFixed(4)}</span></div>`;
+        }
+        orderBookHtml.value = html || '<div class="emp">No order book</div>';
+      } catch(e) { console.error('OrderBook:', e); }
+    }
+
+    async function loadMexcTrades() {
+      try {
+        const resp = await api.get(`/v1/market/trades?symbol=${pair.value}&limit=20`);
+        mexcTrades.value = (resp.trades || []).map(t => ({
+          price: parseFloat(t.price), qty: parseFloat(t.qty),
+          isBuy: t.isBuyerMaker === false, time: new Date(t.time).toLocaleTimeString(),
+          id: t.id,
+        }));
+      } catch(e) { console.error('Trades:', e); }
+    }
+
+    async function loadLedger() {
+      try {
+        const resp = await api.get(`/v1/ledger/recent?symbol=${pair.value}&limit=100`);
+        ledger.value = resp.trades || [];
+      } catch(e) { console.error('Ledger:', e); }
+    }
+
+    async function loadMT5() {
+      try {
+        const acc = await api.get('/v1/mt5/account');
+        mt5.value = acc;
+      } catch(e) {
+        mt5.value = {balance:0, equity:0, free_margin:0, login:null};
+      }
+      loadMT5Positions();
+      const rates = [];
+      for (const p of ['EURUSD','GBPUSD','AUDUSD','USDCAD','USDCHF','USDJPY']) {
+        try {
+          const tick = await api.get(`/v1/mt5/tick/${p}`);
+          rates.push({pair: p, bid: tick.bid, ask: tick.ask});
+        } catch {}
+      }
+      mt5Rates.value = rates;
+    }
+
+    async function drivePipeline() {
+      driving.value = true;
+      driveResult.value = '';
+      try {
+        const d = await api.post('/v1/drive', {symbol: pair.value.toLowerCase(), price: price.value || 1});
+        driveResult.value = JSON.stringify(d).slice(0, 120);
+        setTimeout(() => { loadLedger(); loadCore(); }, 500);
+      } catch(e) {
+        driveResult.value = 'Drive failed: ' + e.message;
+      } finally {
+        driving.value = false;
+      }
+    }
+
+    // ═══ OPERATOR CONTROLS ═══
+    async function killSwitch() {
+      const reason = prompt('Kill switch reason (required):');
+      if (!reason) return;
+      busyControl.value = true;
+      try {
+        await api.post('/v1/supervisor/kill', {reason});
+        controlMsg.value = 'KILL SWITCH ENGAGED';
+        loadCore();
+      } catch(e) { controlMsg.value = 'Kill failed: ' + e.message; }
+      finally { busyControl.value = false; }
+    }
+    async function releaseSwitch() {
+      busyControl.value = true;
+      try {
+        await api.post('/v1/supervisor/release', {});
+        controlMsg.value = 'Trading released.';
+        loadCore();
+      } catch(e) { controlMsg.value = 'Release failed: ' + e.message; }
+      finally { busyControl.value = false; }
+    }
+    async function closePosition(sym) {
+      busyControl.value = true;
+      try {
+        const r = await api.post(`/v1/operator/close/${sym}`, {});
+        controlMsg.value = `Closed ${sym}: ${r.status}`;
+        loadLedger(); loadCore();
+      } catch(e) { controlMsg.value = 'Close failed: ' + e.message; }
+      finally { busyControl.value = false; }
+    }
+    async function flattenAll() {
+      if (!confirm('Close ALL open positions at market?')) return;
+      busyControl.value = true;
+      try {
+        const r = await api.post('/v1/operator/flatten', {});
+        controlMsg.value = `Flattened ${(r.closed || []).length} positions.`;
+        loadLedger(); loadCore();
+      } catch(e) { controlMsg.value = 'Flatten failed: ' + e.message; }
+      finally { busyControl.value = false; }
+    }
+    async function saveRiskConfig() {
+      busyControl.value = true;
+      try {
+        const body = {};
+        for (const k of ['max_risk_per_trade_pct','max_daily_loss_pct','max_drawdown_pct']) {
+          const el = document.getElementById('rc-' + k);
+          if (el && el.value !== '') body[k] = parseFloat(el.value);
+        }
+        if (!Object.keys(body).length) { controlMsg.value = 'Nothing to update.'; return; }
+        await api.post('/v1/operator/risk-config', body);
+        controlMsg.value = 'Risk limits updated.';
+        loadRiskConfig();
+      } catch(e) { controlMsg.value = 'Update failed: ' + e.message; }
+      finally { busyControl.value = false; }
+    }
+    async function loadRiskConfig() {
+      try {
+        const cfg = await api.get('/v1/operator/risk-config');
+        riskConfig.value = cfg.config || {};
+      } catch(e) {}
+    }
+
+    async function loadEvents() {
+      try {
+        const resp = await api.get(`/v1/events/recent?symbol=${pair.value.toLowerCase()}&limit=30`);
+        events.value = (resp.events || []).map((ev, i) => ({
+          ts: ev.timestamp || i,
+          time: new Date(ev.timestamp || Date.now()).toLocaleTimeString('en-US', {hour12:false}),
+          source: (ev.source_name || ev.source_id || 'sys').slice(0, 10),
+          type: (ev.event_type || 'event').slice(0, 10),
+          cls: ev.event_type === 'trade' ? 'tc' : ev.event_type === 'book' ? 'tb' : 'tm',
+          msg: JSON.stringify(ev.payload || {}).slice(0, 90),
+        }));
+      } catch(e) {}
+    }
+
+    async function loadPairUniverse() {
+      try {
+        const resp = await api.get('/v1/market/pairs');
+        allPairs.value = resp.pairs || [];
+      } catch(e) {}
+    }
+
+    function selectSearchPair() {
+      const q = pairSearch.value.trim().toUpperCase();
+      if (!q) return;
+      const match = allPairs.value.find(p => p === q)
+        || allPairs.value.find(p => p === q + 'USDT')
+        || allPairs.value.find(p => p.startsWith(q));
+      if (match) { pair.value = match; pairSearch.value = ''; loadKlines(); }
+    }
+
+    async function loadMT5Positions() {
+      try {
+        const pos = await api.get('/v1/mt5/positions');
+        mt5Positions.value = (pos.positions || []).map(p => ({
+          ...p,
+          pnlCls: p.profit > 0 ? 'tg' : p.profit < 0 ? 'tr' : '',
+        }));
+      } catch(e) {}
+    }
+
+    // ═══ CHART ═══
+    function initChart() {
+      if (chart || !chartEl.value || typeof LightweightCharts === 'undefined') return;
+      chart = LightweightCharts.createChart(chartEl.value, {
+        autoSize: true,
+        layout: {background:{type:'solid',color:'#0a0f1a'},textColor:'#7a8aa0',fontSize:10},
+        grid: {vertLines:{color:'#141d30'},horzLines:{color:'#141d30'}},
+        crosshair: {mode:0},
+        rightPriceScale: {borderColor:'#141d30'},
+        timeScale: {borderColor:'#141d30',timeVisible:true,secondsVisible:false},
+      });
+      candleSeries = chart.addCandlestickSeries({
+        upColor:'#00e5a0',downColor:'#ff4757',
+        borderUpColor:'#00e5a0',borderDownColor:'#ff4757',
+        wickUpColor:'#00e5a0',wickDownColor:'#ff4757',
+      });
+      volSeries = chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol'});
+      chart.priceScale('vol').applyOptions({scaleMargins:{top:.85,bottom:0}});
+    }
+
+    // ═══ VIEW WATCHER ═══
+    watch(view, (v) => {
+      nextTick(() => {
+        if (v === 'trading') { initChart(); loadKlines(); loadOrderBook(); loadMexcTrades(); }
+        if (v === 'portfolio') loadLedger();
+        if (v === 'forex') loadMT5();
+      });
+    });
+
+    watch(pair, () => { loadKlines(); });
+
+    // ═══ WEBSOCKET ═══
+    function connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsMain = new WebSocket(`${proto}//${location.host}/ws`);
+      wsMain.onopen = () => { wsConnected.value = true; };
+      wsMain.onmessage = (event) => {
+        try {
+          const d = JSON.parse(event.data);
+          if (d.price != null) {
+            prevPrice.value = price.value;
+            price.value = d.price;
+            priceFmt.value = fmt(d.price);
+            priceStale.value = !!d.price_stale;
+            priceDir.value = prevPrice.value != null ? (d.price >= prevPrice.value ? 'up' : 'down') : '';
+            priceChg.value = `${prevPrice.value != null ? ((d.price - prevPrice.value) / prevPrice.value * 100) : 0 >= 0 ? '+' : ''}${((d.price - prevPrice.value) / prevPrice.value * 100).toFixed(3)}%`;
+            // Flash on price update
+            chartEl.value?.classList.add('ws-flash');
+            setTimeout(() => chartEl.value?.classList.remove('ws-flash'), 300);
+          }
+          if (d.equity != null) equity.value = d.equity;
+          if (d.positions) positions.value = d.positions;
+          if (d.risk) risk.value = {...risk.value, ...d.risk};
+          if (d.supervisor) { sysStatus.value = d.supervisor; supervisorStatus.value = d.supervisor; }
+          if (d.supervisor_reason != null) sysReason.value = d.supervisor_reason || '';
+        } catch(e) {}
+      };
+      wsMain.onclose = () => { wsConnected.value = false; setTimeout(connectWS, 3000); };
+      wsMain.onerror = () => wsMain.close();
+    }
+
+    function connectMarketWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsMarket = new WebSocket(`${proto}//${location.host}/ws/market`);
+      wsMarket.onmessage = (event) => {
+        try {
+          const d = JSON.parse(event.data);
+          priceStale.value = !!d.stale;
+          if (d.price != null && d.symbol === pair.value) {
+            prevPrice.value = price.value;
+            price.value = d.price;
+            priceFmt.value = fmt(d.price);
+            priceDir.value = prevPrice.value != null ? (d.price >= prevPrice.value ? 'up' : 'down') : '';
+            const chg = prevPrice.value != null ? ((d.price - prevPrice.value) / prevPrice.value * 100) : 0;
+            priceChg.value = `${chg >= 0 ? '+' : ''}${chg.toFixed(3)}%`;
+            // Flash on price update
+            chartEl.value?.classList.add('ws-flash');
+            setTimeout(() => chartEl.value?.classList.remove('ws-flash'), 300);
+          } else if (d.prices && d.prices[pair.value]) {
+            const p = d.prices[pair.value];
+            prevPrice.value = price.value;
+            price.value = p;
+            priceFmt.value = fmt(p);
+            priceDir.value = prevPrice.value != null ? (p >= prevPrice.value ? 'up' : 'down') : '';
+          }
+          // Flash on price update from batched poller
+          if (d.price != null) {
+            chartEl.value?.classList.add('ws-flash');
+            setTimeout(() => chartEl.value?.classList.remove('ws-flash'), 300);
+          }
+        } catch(e) {}
+      };
+      wsMarket.onclose = () => setTimeout(connectMarketWS, 5000);
+      wsMarket.onerror = () => wsMarket.close();
+    }
+
+    // ═══ CLOCK ═══
+    setInterval(() => { clock.value = new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'}); }, 1000);
+
+    // ═══ POLLING ═══
+    setInterval(loadCore, 5000);
+    setInterval(() => {
+      if (view.value === 'trading') { loadOrderBook(); loadMexcTrades(); }
+      if (view.value === 'system') { loadEvents(); loadRiskConfig(); }
+    }, 3000);
+
+    // ═══ MOUNTED ═══
+    onMounted(() => {
+      nextTick(() => {
+        initChart();
+        loadKlines();
+        loadOrderBook();
+        loadMexcTrades();
+        loadCore();
+        loadEvents();
+        loadRiskConfig();
+        loadPairUniverse();
+        connectWS();
+        connectMarketWS();
+      });
+    });
+
+    return {
+      view, pair, timeframe, pairSearch, allPairs, topPairs,
+      equity, positions, price, priceDir, priceFmt, priceChg,
+      wsConnected, paperMode, clock, sysStatus, sysReason,
+      proposals, proposalCount, latestDecision, decisionColor,
+      decisionPillCls, decisionText,
+      ledger, mexcTrades, orderBookHtml,
+      risk, riskBudgetPct, riskPillCls, riskPillText, riskDetailRows, riskBarStyle,
+      mt5, mt5Positions, mt5Rates, mt5AccountRows,
+      totalPnl, unrealPnl, realizedPnl, exposurePct,
+      fmt, pnlCls, timeShort,
+      onPairChange: () => {}, filterPairs: () => {},
+      driving, driveResult, drivePipeline,
+      priceStale, killEngaged, supervisorStatus, riskConfig,
+      busyControl, controlMsg, killSwitch, releaseSwitch,
+      closePosition, flattenAll, saveRiskConfig, loadRiskConfig, events,
+      selectSearchPair,
+      loadKlines,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>

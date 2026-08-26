@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATI Operator Dashboard</title>
+<style>
+  :root { --bg:#0f1220; --panel:#181d33; --line:#2a3050; --text:#e6e9f5; --dim:#8b92b0;
+          --green:#3ddc84; --red:#ff5d5d; --amber:#ffc15d; --accent:#6c8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:16px 24px;
+           border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; }
+  header .status { font-size:13px; color:var(--dim); }
+  main { padding:24px; display:grid; grid-template-columns: repeat(12, 1fr); gap:16px; }
+  .panel { grid-column: span 4; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+  .panel.wide { grid-column: span 8; }
+  .panel h2 { font-size:14px; margin:0 0 12px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+  .kpis { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .kpi .label { font-size:12px; color:var(--dim); }
+  .kpi .value { font-size:22px; font-weight:600; margin-top:4px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; }
+  td .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
+  .pill.green { background:rgba(61,220,132,.15); color:var(--green); }
+  .pill.red { background:rgba(255,93,93,.15); color:var(--red); }
+  .pill.amber { background:rgba(255,193,93,.15); color:var(--amber); }
+  .pill.dim { background:rgba(139,146,176,.15); color:var(--dim); }
+  label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
+  input { width:100%; background:#0f1220; color:var(--text); border:1px solid var(--line);
+          border-radius:8px; padding:10px; font-size:14px; margin-bottom:12px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 16px;
+           font-size:14px; cursor:pointer; font-weight:600; }
+  button:hover { filter:brightness(1.1); }
+  .log { font-family:Consolas,monospace; font-size:12px; line-height:1.6; max-height:300px;
+         overflow:auto; white-space:pre-wrap; }
+  .log div { padding:2px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ATI · Operator Dashboard</h1>
+  <span class="status" id="health">checking…</span>
+</header>
+
+<main>
+  <div class="panel">
+    <h2>Drive a decision (paper)</h2>
+    <label for="symbol">Symbol</label>
+    <input id="symbol" value="btcusdt" autocomplete="off">
+    <label for="price">Mark price</label>
+    <input id="price" type="number" step="0.01" value="100.0">
+    <button onclick="drive()">Run through the loop</button>
+    <div class="log" id="driveLog"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Portfolio</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Equity</div><div class="value" id="kpiEquity">—</div></div>
+      <div class="kpi"><div class="label">Positions</div><div class="value" id="kpiPositions">—</div></div>
+      <div class="kpi"><div class="label">Memory</div><div class="value" id="kpiMemory">—</div></div>
+    </div>
+    <table style="margin-top:12px">
+      <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg price</th></tr></thead>
+      <tbody id="positions"></tbody>
+    </table>
+  </div>
+
+  <div class="panel wide">
+    <h2>Recent ledger</h2>
+    <table>
+      <thead><tr><th>Trade</th><th>Symbol</th><th>Status</th><th>Entry</th><th>Exit</th><th>P&amp;L</th></tr></thead>
+      <tbody id="ledger"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Episodic memory (btcusdt)</h2>
+    <table>
+      <thead><tr><th>Outcome</th><th>Action</th><th>P&amp;L</th><th>Conf</th></tr></thead>
+      <tbody id="memory"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Proposals (btcusdt)</h2>
+    <table>
+      <thead><tr><th>Id</th><th>Action</th><th>Conf</th></tr></thead>
+      <tbody id="proposals"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const log = document.getElementById("driveLog");
+const SYMBOL = "btcusdt";
+
+function logLine(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function api(path, options) {
+  const res = await fetch(path, options);
+  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  return res.json();
+}
+
+async function refresh() {
+  try {
+    const sim = await api("/v1/simulator");
+    document.getElementById("kpiEquity").textContent = sim.equity.toLocaleString(undefined, {maximumFractionDigits: 2});
+    document.getElementById("kpiPositions").textContent = Object.keys(sim.positions).length;
+    const positions = document.getElementById("positions");
+    positions.innerHTML = "";
+    for (const [sym, p] of Object.entries(sim.positions)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${sym}</td><td>${p.side}</td><td>${p.quantity}</td><td>${p.average_entry_price}</td>`;
+      positions.appendChild(tr);
+    }
+
+    const memCount = await api(`/v1/memory/count?symbol=${SYMBOL}`);
+    document.getElementById("kpiMemory").textContent = memCount.count;
+
+    const memory = await api(`/v1/memory/recall?symbol=${SYMBOL}&limit=10`);
+    const memoryRows = document.getElementById("memory");
+    memoryRows.innerHTML = "";
+    for (const e of memory.episodes) {
+      const cls = e.outcome === "win" ? "green" : e.outcome === "loss" ? "red" : "dim";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><span class="pill ${cls}">${e.outcome}</span></td><td>${e.action_type}</td><td>${e.realized_pnl ?? "—"}</td><td>${e.confidence}</td>`;
+      memoryRows.appendChild(tr);
+    }
+
+    const ledger = await api(`/v1/ledger/recent?symbol=${SYMBOL}&limit=10`);
+    const ledgerRows = document.getElementById("ledger");
+    ledgerRows.innerHTML = "";
+    for (const t of ledger.trades) {
+      const cls = t.status === "closed" ? (t.realized_pnl > 0 ? "green" : "red") : "amber";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${t.trade_id}</td><td>${t.symbol}</td><td><span class="pill ${cls}">${t.status}</span></td><td>${t.entry_price}</td><td>${t.exit_price ?? "—"}</td><td>${t.realized_pnl ?? "—"}</td>`;
+      ledgerRows.appendChild(tr);
+    }
+
+    const proposals = await api(`/v1/proposals/recent?symbol=${SYMBOL}&limit=10`);
+    const proposalRows = document.getElementById("proposals");
+    proposalRows.innerHTML = "";
+    for (const p of proposals.proposals) {
+      const action = p.actions && p.actions[0] ? p.actions[0].action_type : "—";
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${p.proposal_id}</td><td>${action}</td><td>${p.confidence}</td>`;
+      proposalRows.appendChild(tr);
+    }
+  } catch (err) {
+    document.getElementById("health").textContent = "offline";
+    console.error(err);
+  }
+}
+
+async function drive() {
+  const symbol = document.getElementById("symbol").value.trim().toLowerCase();
+  const price = parseFloat(document.getElementById("price").value);
+  if (!symbol || !Number.isFinite(price) || price <= 0) {
+    logLine("invalid symbol or price");
+    return;
+  }
+  try {
+    const result = await api("/v1/drive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, price }),
+    });
+    const pnl = result.closed_trade ? ` · pnl ${result.closed_trade.realized_pnl}` : "";
+    logLine(`${result.symbol} @ ${price} -> ${result.result} (${result.risk_verdict})${pnl}`);
+    await refresh();
+  } catch (err) {
+    logLine(`error: ${err.message}`);
+  }
+}
+
+async function checkHealth() {
+  try {
+    const h = await api("/health");
+    document.getElementById("health").textContent = `${h.status} · ${h.env}`;
+  } catch { document.getElementById("health").textContent = "offline"; }
+}
+
+checkHealth();
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
