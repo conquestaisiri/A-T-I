@@ -1,0 +1,6 @@
+# ATI — Optional ML/sentiment profile
+# -----------------------------------------------
+# FinBERT sentiment model for GDELT news (backend/application/sentiment/).
+# Heavy: torch is ~2GB, transformers ~50MB.
+torch>=2.0.0
+transformers>=4.40.0

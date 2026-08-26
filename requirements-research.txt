@@ -1,0 +1,7 @@
+# ATI — Optional research/portfolio profile
+# -----------------------------------------------
+# Portfolio-level risk management (HRP + CVaR) via riskfolio-lib.
+# Only needed when using the PortfolioRiskManager builder.
+pandas>=2.0.0
+cvxpy>=1.4.0
+riskfolio-lib>=7.0.0

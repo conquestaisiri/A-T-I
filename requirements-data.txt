@@ -1,0 +1,8 @@
+# ATI — Optional SEC EDGAR data profile
+# -----------------------------------------------
+# SEC EDGAR insider transactions and 13F institutional holdings.
+# Only needed when using the EdgarService builder.
+edgartools>=5.0.0
+
+# Feed parsing for macro calendars and RSS news
+feedparser>=6.0.0

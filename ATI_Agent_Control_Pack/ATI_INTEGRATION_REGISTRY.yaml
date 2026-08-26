@@ -1,0 +1,275 @@
+# ATI Integration Registry
+# Purpose: prevent random dependency accumulation and force evidence-based integration.
+
+version: "1.0"
+last_reviewed: "2026-08-12"
+
+integrations:
+
+  - id: INT-001
+    name: "SQLite"
+    category: "storage"
+    status: "ACTIVE_V1"
+    decision: "INTEGRATE"
+    purpose: "Transactional V1 persistence and replayable state."
+    rule: "Keep until scale demonstrates a need for migration."
+    replaceable: true
+
+  - id: INT-002
+    name: "CCXT"
+    category: "venue"
+    status: "ACTIVE_ADAPTER"
+    decision: "INTEGRATE"
+    purpose: "Unified venue access."
+    license: "MIT"
+    source: "pypi:ccxt; binanceusdm for USDT-M perps"
+    rule: "Core must never import CCXT directly. Verify watch_* WebSocket licensing against the pinned version before live WS use."
+    replaceable: true
+
+  - id: INT-003
+    name: "PydanticAI"
+    category: "AI"
+    status: "ADAPTER"
+    decision: "INTEGRATE"
+    purpose: "Structured AI reasoning."
+    rule: "AI output must enter through DecisionProposal and never bypass risk."
+    replaceable: true
+
+  - id: INT-004
+    name: "OmniRoute"
+    category: "AI_GATEWAY"
+    status: "DEV_BACKTEST"
+    decision: "INTEGRATE"
+    purpose: "Provider routing during development/research."
+    rule: "Never required for live trading."
+    replaceable: true
+
+  - id: INT-005
+    name: "GDELT"
+    category: "alternative_data"
+    status: "PROTOTYPE_NOT_VALIDATED"
+    decision: "INTEGRATE_AFTER_TIMESTAMPING"
+    purpose: "Historical/current news data."
+    blocker: "Need historical event storage and availability timestamps."
+    replaceable: true
+
+  - id: INT-006
+    name: "FinBERT"
+    category: "alternative_data_model"
+    status: "PROTOTYPE_NOT_VALIDATED"
+    decision: "INTEGRATE_AFTER_TIMESTAMPING"
+    purpose: "News sentiment."
+    blocker: "Need historical sentiment dataset and cost/latency evaluation."
+    replaceable: true
+
+  - id: INT-007
+    name: "SEC EDGAR"
+    category: "alternative_data"
+    status: "PROXY_RESEARCH"
+    decision: "RESEARCH"
+    purpose: "Equity insider/13F proxy signals."
+    blocker: "Must be framed as crypto proxy research, not direct BTC/ETH insider data."
+    replaceable: true
+
+  - id: INT-008
+    name: "riskfolio"
+    category: "portfolio_risk"
+    status: "RESEARCH_COMPONENT"
+    decision: "WRAP"
+    purpose: "HRP portfolio research."
+    blocker: "Not yet connected to capital authority."
+    replaceable: true
+
+  - id: INT-009
+    name: "cvxpy"
+    category: "portfolio_risk"
+    status: "RESEARCH_COMPONENT"
+    decision: "WRAP"
+    purpose: "CVaR optimization."
+    blocker: "Not yet connected to capital authority."
+    replaceable: true
+
+  - id: INT-010
+    name: "NumPy"
+    category: "computation"
+    status: "RESEARCH_AND_CORE_FEATURES"
+    decision: "INTEGRATE"
+    purpose: "Numerical computation."
+    replaceable: false
+
+  - id: INT-011
+    name: "pandas"
+    category: "research"
+    status: "RESEARCH"
+    decision: "INTEGRATE"
+    purpose: "Historical data analysis."
+    rule: "Keep out of latency-sensitive core paths where unnecessary."
+    replaceable: true
+
+  - id: INT-012
+    name: "Transformers/Torch"
+    category: "AI_RESEARCH"
+    status: "PROTOTYPE"
+    decision: "OPTIONAL"
+    purpose: "FinBERT inference."
+    rule: "Must remain optional for core installation."
+    replaceable: true
+
+  - id: INT-013
+    name: "NATS JetStream"
+    category: "event_bus"
+    status: "PLANNED"
+    decision: "DEFER"
+    trigger: "Only when single-process bus limits are demonstrated."
+    replaceable: true
+
+  - id: INT-014
+    name: "ClickHouse"
+    category: "analytics_storage"
+    status: "PLANNED"
+    decision: "DEFER"
+    trigger: "Tick/feature analytics exceed SQLite suitability."
+    replaceable: true
+
+  - id: INT-015
+    name: "LightGBM"
+    category: "ML"
+    status: "NOT_YET"
+    decision: "DEFER"
+    trigger: "Research validation pipeline is correct first."
+    replaceable: true
+
+  - id: INT-016
+    name: "Reinforcement Learning"
+    category: "ML"
+    status: "REJECTED_FOR_CURRENT_PHASE"
+    decision: "IGNORE"
+    reason: "No validated simulator/economic edge foundation yet."
+
+  - id: INT-017
+    name: "DeepLOB/CNN-LSTM"
+    category: "ML"
+    status: "REJECTED_FOR_CURRENT_PHASE"
+    decision: "IGNORE"
+    reason: "Complexity is premature before microstructure baseline validation."
+
+  - id: INT-018
+    name: "FPGA/kernel bypass/colocation"
+    category: "latency"
+    status: "REJECTED_FOR_CURRENT_PHASE"
+    decision: "IGNORE"
+    reason: "Current bottleneck is signal quality and validation, not network latency."
+
+  - id: INT-019
+    name: "hftbacktest"
+    category: "microstructure_research"
+    status: "RESEARCH_COMPONENT"
+    decision: "INTEGRATE"
+    purpose: "Queue-position and latency fill simulation on full tick L2/L3 data for maker validation."
+    license: "MIT"
+    source: "pypi:hftbacktest (v2.4.4); Rust crate v0.9.4; Binance USD-M depth + trades WS"
+    rule: "Backtest/research layer only; never on the live execution path. Live bot is experimental and Rust-only."
+    replaceable: true
+
+  - id: INT-020
+    name: "NautilusTrader"
+    category: "execution_reference"
+    status: "REFERENCE_ONLY"
+    decision: "FORK"
+    purpose: "Design reference: parent/child order lifecycle, reconciliation, fill-model taxonomy."
+    license: "LGPL-3.0-or-later"
+    source: "github:nautechsystems/nautilus_trader (v1.231.0)"
+    blocker: "LGPL copyleft blocks direct vendor dependency. Adopt design concepts behind ATI abstractions only; never import."
+    replaceable: false
+
+  - id: INT-021
+    name: "Freqtrade"
+    category: "execution_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "GPL-3.0 license poison for a dependency. REST API and CCXT-based core already duplicated by ATI's CCXT adapter."
+    license: "GPL-3.0"
+    source: "github:freqtrade/freqtrade (~51.7k stars, v2026.2)"
+
+  - id: INT-022
+    name: "Hummingbot"
+    category: "execution_reference"
+    status: "REFERENCE_ONLY"
+    decision: "FORK"
+    purpose: "Design reference: connector patterns for perp venues."
+    license: "Apache-2.0"
+    source: "github:hummingbot/hummingbot (v2.16.0)"
+    blocker: "Application-shaped; owns the process. Cannot embed as a library. Adopt connector ideas only."
+
+  - id: INT-023
+    name: "barter-rs"
+    category: "execution_reference"
+    status: "NOT_YET"
+    decision: "DEFER"
+    trigger: "Revisit as a Rust WebSocket sidecar only if latency becomes the evidenced bottleneck."
+    license: "MIT"
+    source: "crates: barter-data / barter-execution (BinanceFuturesUsd; 0.12.5)"
+
+  - id: INT-024
+    name: "OctoBot"
+    category: "execution_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "GPL-3.0-or-later license poison."
+    license: "GPL-3.0-or-later"
+    source: "github:Drakkar-Software/OctoBot (v2.1.1)"
+
+  - id: INT-025
+    name: "OpenAlgo"
+    category: "execution_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "AGPL-3.0 license poison and Indian broker market, not crypto."
+    license: "AGPL-3.0"
+    source: "github:marketcalls/openalgo"
+
+  - id: INT-026
+    name: "backtrader"
+    category: "backtest_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "GPL-3.0 license poison and dormant since April 2023."
+    license: "GPL-3.0"
+    source: "github:mementum/backtrader (~22.1k stars)"
+
+  - id: INT-027
+    name: "backtesting.py"
+    category: "backtest_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "AGPL-3.0 license poison; no live execution."
+    license: "AGPL-3.0"
+    source: "github:kernelproxy/backtesting.py (~8.5k stars)"
+
+  - id: INT-028
+    name: "vectorbt"
+    category: "backtest_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "Apache-2.0 + Commons Clause (no commercial redistribution); no live execution; OSS in maintenance mode."
+    license: "Apache-2.0 + Commons Clause"
+    source: "github:polakowo/vectorbt (v1.0.0)"
+
+  - id: INT-029
+    name: "Jesse"
+    category: "execution_reference"
+    status: "REJECTED"
+    decision: "IGNORE"
+    reason: "MIT core, but live/paper trading requires a paid license-key plugin. Not a free live-execution path."
+    license: "MIT (core) + paid plugin"
+    source: "github:jesse-ai/jesse (v3.0.5)"
+
+  - id: INT-030
+    name: "passivbot"
+    category: "execution_reference"
+    status: "REFERENCE_ONLY"
+    decision: "FORK"
+    purpose: "Design reference: perp grid/trailing execution loops."
+    license: "Unlicense"
+    source: "github:enarjord/passivbot"
+    blocker: "Adopt loop/risk ideas behind ATI abstractions only."

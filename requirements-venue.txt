@@ -1,0 +1,12 @@
+# ATI — Optional exchange-venue profile
+# -----------------------------------------------
+# CCXT observation adapters and order gateway.
+# All ccxt imports are lazy inside function bodies; this only affects the
+# runtime at call time, not module import.
+ccxt>=4.0.0
+
+# Async HTTP client for venue streaming (OANDA, FXCM, GDELT, RSS)
+aiohttp>=3.9.0
+
+# MetaTrader5 bridge for MT5 execution
+MetaTrader5>=5.0.0

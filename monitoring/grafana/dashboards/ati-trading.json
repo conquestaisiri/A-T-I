@@ -1,0 +1,124 @@
+{
+  "dashboard": {
+    "title": "ATI Trading Intelligence",
+    "uid": "ati-trading",
+    "tags": ["ati", "trading", "production"],
+    "timezone": "utc",
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "title": "System Health",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "up{job=~\"ati-.*\"}",
+            "legendFormat": "{{job}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "API Request Rate",
+        "type": "graph",
+        "gridPos": {"x": 6, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"ati-api\"}[5m])",
+            "legendFormat": "{{method}} {{handler}}"
+          }
+        ]
+      },
+      {
+        "title": "Order Execution Rate",
+        "type": "graph",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "rate(ati_orders_total[5m])",
+            "legendFormat": "{{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Data Fabric Connectors",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 4, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "ati_data_fabric_connected_sources",
+            "legendFormat": "Connected"
+          }
+        ]
+      },
+      {
+        "title": "Market Data Latency (ms)",
+        "type": "graph",
+        "gridPos": {"x": 6, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(ati_market_data_latency_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(ati_market_data_latency_bucket[5m]))",
+            "legendFormat": "p50"
+          }
+        ]
+      },
+      {
+        "title": "Risk Gate Decisions",
+        "type": "graph",
+        "gridPos": {"x": 18, "y": 4, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ati_risk_gate_decisions_total[5m])",
+            "legendFormat": "{{verdict}}"
+          }
+        ]
+      },
+      {
+        "title": "PnL",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 6, "h": 8},
+        "targets": [
+          {
+            "expr": "ati_pnl_total",
+            "legendFormat": "Total PnL"
+          },
+          {
+            "expr": "ati_pnl_daily",
+            "legendFormat": "Daily PnL"
+          }
+        ]
+      },
+      {
+        "title": "Open Positions",
+        "type": "table",
+        "gridPos": {"x": 0, "y": 16, "w": 24, "h": 10},
+        "targets": [
+          {
+            "expr": "ati_open_positions",
+            "format": "table"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

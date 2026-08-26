@@ -1,0 +1,5 @@
+# ATI — Optional AI-reasoning profile
+# -----------------------------------------------
+# PydanticAI structured-output LLM reasoner (ADR 0011).
+# Requires a running OmniRoute router (localhost:20128) or OpenAI API key.
+pydantic-ai[openai]>=2.0.0

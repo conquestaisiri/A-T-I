@@ -1,0 +1,52 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ati-trading'
+    environment: '${ENVIRONMENT:-development}'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # ATI API
+  - job_name: 'ati-api'
+    static_configs:
+      - targets: ['ati-api:8000']
+    metrics_path: '/metrics'
+
+  # ATI Data Fabric
+  - job_name: 'ati-data-fabric'
+    static_configs:
+      - targets: ['ati-data-fabric:8000']
+    metrics_path: '/metrics'
+
+  # ATI Execution Core
+  - job_name: 'ati-execution'
+    static_configs:
+      - targets: ['ati-execution:8000']
+    metrics_path: '/metrics'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  # Node Exporter (host metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']

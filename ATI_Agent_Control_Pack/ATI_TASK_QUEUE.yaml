@@ -1,0 +1,462 @@
+# ATI Dynamic Engineering Task Queue
+# The agent must read this file at every session start.
+# Status values: BLOCKED / READY / IN_PROGRESS / DONE / REJECTED
+# Priority: P0 > P1 > P2 > P3 > P4
+
+version: "1.0"
+last_reviewed: "2026-08-11"
+
+rules:
+  never_enable_live_trading: true
+  never_bypass_risk_gate: true
+  never_modify_risk_from_learning: true
+  never_claim_profitability_without_evidence: true
+  unlisted_features_default_enabled: false
+  failed_research_must_be_preserved: true
+  every_done_task_requires_tests: true
+  every_architecture_change_requires_adr: true
+
+phases:
+  P0:
+    name: "Correctness and Safety"
+    goal: "Make existing behavior truthful, deterministic, safe and reproducible."
+  P1:
+    name: "Research Truth"
+    goal: "Create a causally correct research and validation system."
+  P2:
+    name: "Execution Truth"
+    goal: "Make paper/live execution economics realistic and measurable."
+  P3:
+    name: "Decision Intelligence"
+    goal: "Improve market understanding, scenario reasoning and strategy selection."
+  P4:
+    name: "Controlled Autonomy"
+    goal: "Allow bounded autonomous evolution only after evidence."
+
+tasks:
+
+  - id: P0-001
+    title: "Complete dependency manifest"
+    priority: P0
+    status: READY
+    paths:
+      - requirements.txt
+      - requirements-dev.txt
+      - pyproject.toml
+      - backend/
+    acceptance:
+      - "All imported third-party packages are declared in an appropriate dependency group."
+      - "Fresh environment can install the core profile."
+      - "Core test suite imports without undeclared optional packages."
+      - "Optional heavy integrations remain optional where architecturally appropriate."
+    blockers: []
+    do_not: "Do not simply add every research package to the core requirements."
+
+  - id: P0-002
+    title: "Fix regime detector price source"
+    priority: P0
+    status: READY
+    paths:
+      - backend/domain/context/features/regime.py
+      - backend/application/regime/regime_detector.py
+      - tests/
+    acceptance:
+      - "Regime detector consumes real price data."
+      - "Timestamp cannot masquerade as price."
+      - "Historical replay is deterministic."
+      - "Hand-calculated price-return tests pass."
+    blockers: []
+
+  - id: P0-003
+    title: "Make feature configuration explicit"
+    priority: P0
+    status: READY
+    paths:
+      - config/context.yaml
+      - backend/infrastructure/config/context_loader.py
+      - backend/application/interfaces/context_settings.py
+      - tests/unit/test_context_loader.py
+    acceptance:
+      - "Every registered feature is explicitly configured."
+      - "Unknown/unlisted features do not silently activate."
+      - "Experimental features can be disabled by default."
+      - "Configuration validation covers all feature-specific parameters."
+    blockers: []
+
+  - id: P0-004
+    title: "Create canonical observation enrichment path"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/pipeline/context_pipeline_service.py
+      - backend/domain/context/features/micro_price.py
+      - backend/domain/context/features/order_flow.py
+      - backend/application/validation/tick_recorder.py
+    acceptance:
+      - "Order-book events update micro-price state."
+      - "Order-book deltas update OFI."
+      - "L2 delta events reach the recorder."
+      - "No feature depends on an undocumented external caller."
+      - "Integration test proves end-to-end enrichment."
+    blockers:
+      - "P0-003"
+
+  - id: P0-005
+    title: "Correct order-book delta and OFI semantics"
+    priority: P0
+    status: READY
+    paths:
+      - backend/infrastructure/observation/ccxt_adapter.py
+      - backend/domain/context/features/order_flow.py
+      - tests/unit/test_features.py
+    acceptance:
+      - "Price levels are correctly identified."
+      - "Old/new size is available when calculating delta."
+      - "Add/update/remove are mathematically correct."
+      - "Level-aware OFI is tested with hand-calculated examples."
+      - "Synthetic snapshot deltas are labeled as synthetic."
+      - "Native sequence support is isolated as a future adapter capability."
+    blockers:
+      - "P0-004"
+
+  - id: P0-006
+    title: "Replace unsafe tick recorder format"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/validation/tick_recorder.py
+      - tests/
+    acceptance:
+      - "No pickle is required to read recorded data."
+      - "Existing data can be migrated or explicitly discarded."
+      - "Schema includes timestamp, symbol, side, price, old/new size where known, action, sequence."
+      - "Round-trip tests pass."
+    blockers: []
+
+  - id: P0-007
+    title: "Replace purged CV with label-aware validation"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/validation/purged_cv.py
+      - tests/
+    acceptance:
+      - "Training labels overlapping test labels are purged."
+      - "Embargo is explicit."
+      - "No future training observations are used for a test fold unless explicitly allowed by the selected validation design."
+      - "Adversarial leakage tests pass."
+      - "Documentation explains interval semantics."
+    blockers: []
+
+  - id: P0-008
+    title: "Make simulator risk snapshots replay-time deterministic"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/simulation/paper_trading_simulator.py
+      - tests/application/test_paper_trading_simulator.py
+    acceptance:
+      - "Daily/monthly resets use injected/event time."
+      - "Same replay produces same results."
+      - "No wall-clock dependency remains in deterministic simulation."
+    blockers: []
+
+  - id: P0-009
+    title: "Fix short and signed PnL accounting"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/simulation/paper_trading_simulator.py
+      - backend/domain/execution/
+      - tests/
+    acceptance:
+      - "Long unrealized PnL is correct."
+      - "Short unrealized PnL is correct."
+      - "Realized PnL is correct."
+      - "A shared accounting function prevents formula duplication."
+    blockers: []
+
+  - id: P0-010
+    title: "Integrate fees and execution costs into net PnL"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/simulation/paper_trading_simulator.py
+      - backend/application/simulation/paper_fill_engine.py
+      - backend/domain/execution/execution_report.py
+      - backend/domain/execution/trade_record.py
+    acceptance:
+      - "Gross PnL and net PnL are distinct."
+      - "Fees are recorded."
+      - "Paper fee assumptions are configurable."
+      - "Execution report and ledger agree."
+      - "Funding is represented as a separate cost field or explicitly deferred."
+    blockers:
+      - "P0-009"
+
+  - id: P0-011
+    title: "Capture execution arrival state"
+    priority: P0
+    status: READY
+    paths:
+      - backend/infrastructure/execution/ccxt_gateway.py
+      - backend/application/
+      - backend/domain/execution/execution_report.py
+    acceptance:
+      - "Arrival mid is captured before submission."
+      - "Slippage is measurable."
+      - "Execution latency is measurable."
+      - "Venue fee/maker status is normalized."
+    blockers:
+      - "P0-010"
+
+  - id: P0-012
+    title: "Build order and position reconciliation contract"
+    priority: P0
+    status: READY
+    paths:
+      - backend/application/interfaces/order_gateway.py
+      - backend/infrastructure/execution/ccxt_gateway.py
+      - backend/domain/execution/
+      - tests/
+    acceptance:
+      - "Unknown order states are explicit."
+      - "Venue state can be reconciled with internal state."
+      - "Position mismatch blocks new risk."
+      - "Restart recovery is tested."
+    blockers: []
+
+  - id: P0-013
+    title: "Protect all sensitive API routes"
+    priority: P0
+    status: READY
+    paths:
+      - backend/presentation/api/
+      - backend/main.py
+      - tests/presentation/
+    acceptance:
+      - "Sensitive read/write endpoints require authentication."
+      - "Health endpoint remains intentionally public if desired."
+      - "Kill/release controls require authentication."
+      - "Development mode behavior is explicit."
+    blockers: []
+
+  - id: P0-014
+    title: "Validate live gateway in sandbox only"
+    priority: P0
+    status: BLOCKED
+    paths:
+      - backend/infrastructure/execution/ccxt_gateway.py
+      - backend/infrastructure/observation/ccxt_adapter.py
+    acceptance:
+      - "Sandbox order lifecycle works."
+      - "Reject/cancel/partial-fill/unknown states are handled."
+      - "No production credential is required."
+    blockers:
+      - "P0-011"
+      - "P0-012"
+
+  - id: P1-001
+    title: "Build versioned historical dataset contract"
+    priority: P1
+    status: READY
+    paths:
+      - backend/application/validation/
+      - docs/
+    acceptance:
+      - "Raw and normalized datasets are distinguishable."
+      - "Dataset snapshots are immutable/versioned."
+      - "Source timestamps and availability timestamps are preserved."
+    blockers:
+      - "P0-006"
+
+  - id: P1-002
+    title: "Build label-generation framework"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Labels are defined before model training."
+      - "Forward-looking windows are explicit."
+      - "Label timestamps are recorded."
+    blockers:
+      - "P1-001"
+
+  - id: P1-003
+    title: "Build baseline strategy evaluation suite"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Simple baselines exist."
+      - "All baselines use realistic costs."
+      - "Results are comparable."
+    blockers:
+      - "P1-001"
+      - "P1-002"
+
+  - id: P1-004
+    title: "Feature attribution and ablation framework"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Each feature can be switched on/off."
+      - "Incremental contribution is measurable."
+      - "Results are reported by regime and cost."
+    blockers:
+      - "P1-003"
+
+  - id: P1-005
+    title: "Research experiment registry"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Every experiment has immutable metadata."
+      - "Failed experiments are preserved."
+      - "Final test data is protected."
+    blockers:
+      - "P1-001"
+
+  - id: P1-006
+    title: "Historical alternative-data storage"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Sentiment is stored by source timestamp."
+      - "SEC/proxy events are stored by filing/publication timestamp."
+      - "Backtests never use current cache values."
+    blockers:
+      - "P1-001"
+
+  - id: P1-007
+    title: "Regime-conditioned strategy evaluation"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Strategies report performance by regime."
+      - "Regime classification itself is timestamp-correct."
+    blockers:
+      - "P0-002"
+
+  - id: P1-008
+    title: "Robustness and multiple-testing controls"
+    priority: P1
+    status: READY
+    acceptance:
+      - "Parameter perturbation exists."
+      - "Cost stress exists."
+      - "Slippage stress exists."
+      - "Experiment count is tracked."
+      - "Selection bias is reported."
+    blockers:
+      - "P1-005"
+
+  - id: P2-001
+    title: "Realistic paper execution model"
+    priority: P2
+    status: READY
+    acceptance:
+      - "Fees, spread, latency, partial fills, queue, cancellation and impact are modeled."
+      - "Paper execution shares interfaces with live execution."
+    blockers:
+      - "P0-010"
+      - "P0-011"
+
+  - id: P2-002
+    title: "Execution attribution"
+    priority: P2
+    status: READY
+    acceptance:
+      - "Arrival price is stored."
+      - "Slippage is stored."
+      - "Fees are stored."
+      - "Maker/taker is stored."
+      - "Execution cost can be attributed per strategy."
+    blockers:
+      - "P0-011"
+
+  - id: P2-003
+    title: "Microstructure validation harness integration"
+    priority: P2
+    status: READY
+    acceptance:
+      - "Microstructure strategies are tested through realistic fills."
+      - "Randomness is seeded or controlled."
+      - "Queue assumptions are documented."
+    blockers:
+      - "P0-005"
+      - "P2-001"
+
+  - id: P3-001
+    title: "Scenario engine"
+    priority: P3
+    status: READY
+    acceptance:
+      - "Multiple scenarios are generated."
+      - "Probabilities are calibrated."
+      - "Expected value includes costs."
+      - "Abstention is supported."
+    blockers:
+      - "P1-003"
+
+  - id: P3-002
+    title: "Historical analog retrieval"
+    priority: P3
+    status: READY
+    acceptance:
+      - "State similarity is measurable."
+      - "Retrieval has timestamps and confidence."
+      - "Weak analogs are not treated as strong evidence."
+    blockers:
+      - "P1-001"
+
+  - id: P3-003
+    title: "Strategy allocator"
+    priority: P3
+    status: READY
+    acceptance:
+      - "Strategies compete for risk budget."
+      - "Correlation and regime fit are included."
+      - "Allocator cannot bypass risk gate."
+    blockers:
+      - "P1-003"
+
+  - id: P4-001
+    title: "Controlled model promotion"
+    priority: P4
+    status: BLOCKED
+    acceptance:
+      - "Research → validation → paper → canary → production gates exist."
+      - "Rollback is automatic and tested."
+    blockers:
+      - "P1-008"
+      - "P2-001"
+      - "P3-001"
+
+  - id: P4-002
+    title: "Autonomous research loop"
+    priority: P4
+    status: BLOCKED
+    acceptance:
+      - "Agent can generate hypotheses."
+      - "Agent can run experiments."
+      - "Agent can compare evidence."
+      - "Agent cannot directly deploy itself."
+    blockers:
+      - "P4-001"
+
+  - id: P4-003
+    title: "Live canary"
+    priority: P4
+    status: BLOCKED
+    acceptance:
+      - "Sandbox lifecycle proven."
+      - "Paper campaign proven."
+      - "Risk and reconciliation proven."
+      - "Explicit operator authorization."
+    blockers:
+      - "P0-014"
+      - "P4-001"
+
+current_focus:
+  phase: "P0"
+  rule: "Do not begin P1/P2/P3/P4 tasks while P0 correctness blockers remain."
+  first_task: "P0-001"

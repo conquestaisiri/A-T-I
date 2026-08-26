@@ -1,0 +1,11 @@
+# ATI — Full research install
+# -----------------------------------------------
+# Core + every optional profile + dev tooling.
+# Reproduces the verified development environment.
+-r requirements.txt
+-r requirements-ai.txt
+-r requirements-ml.txt
+-r requirements-research.txt
+-r requirements-data.txt
+-r requirements-venue.txt
+-r requirements-dev.txt

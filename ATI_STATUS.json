@@ -1,0 +1,37 @@
+{
+  "project": "Autonomous Trading Intelligence",
+  "snapshot_date": "2026-08-24",
+  "live_trading_enabled": false,
+  "phase": "research-institution",
+  "engineering_state": "evidence_pipeline_built_library_only",
+  "profitability_proven": false,
+  "test_suite": {
+    "passed": 1707,
+    "files": 291,
+    "skips_xfails": 0,
+    "ruff": "clean",
+    "mypy": "clean"
+  },
+  "roadmap": {
+    "tier_1_quality": "complete except T1-8-1 (real-data run) BLOCKED on operator (no frozen datasets in DB, verified 2026-08-19; awaiting operator-provided BTCUSDT klines CSV); T1-1-4 done 2026-08-19, T1-2-1 done 2026-08-19, T1-3-1/T1-5-1 done 2026-08-19 (runtime leak-detector: CLI 'datasets leaks', LEAK/DEAD_LOCK findings), T1-4-1 done 2026-08-19 (experiment lineage: CLI 'experiments lineage', bounded DAG walk), T1-6-1 done 2026-08-19 (CV gap/embargo surfaced: splitter as_dict specs + 'evidence run --embargo', proven in passport + archived report)",
+    "tier_2_intelligence": "fully complete",
+    "tier_3_autonomy": "fully complete (T3-21..T3-30, library-only until evidence gates)",
+    "tier_4": "deferred by guardrail",
+    "p5_evidence_queue": "P5-001..P5-007 all done"
+  },
+  "architecture": {
+    "style": "clean_architecture_hexagonal",
+    "live_path": "observation -> context pipeline -> RuleBasedSolver -> risk gate -> paper simulator -> ledger/reflection -> API",
+    "research_layer": "48 application + 35 domain modules, all library-only (main.py imports none)",
+    "operator_cli": "backend/cli.py (ingest, evidence run/demo, datasets list/quality/leaks, passports, experiments lineage)"
+  },
+  "evidence_state": {
+    "real_data_run": "P5-005 demonstrated on 400 synthetic bars (verdict REJECT); real BTCUSDT run is an operator step via the CLI (data required)",
+    "autonomy_ladder_wired": false
+  },
+  "guardrails": {
+    "autonomy_ladder_in_live_path": "NOT wired (by design)",
+    "unproven_strategy_promotion": "blocked by evidence gates"
+  },
+  "next_task": "T1-8-1 (real-data evidence run) BLOCKED on operator input: ingest a real BTCUSDT klines CSV (`py -3 -m backend.cli ingest <klines.csv> --dataset-id btcusdt --symbol btcusdt`), then run `evidence run`; re-check `data/trading_intelligence.db` for datasets first. Session 2026-08-19 also cleared 47 pre-existing ruff violations in the research layer (masked by stale ruff cache + .gitignore bug) and the pre-existing reasoner_ablation.py:271 mypy error; suite 1696 green, ruff/mypy clean."
+}

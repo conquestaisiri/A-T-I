@@ -1,0 +1,22 @@
+# Secrets — never bake into image
+.env
+.env.local
+.env.*.local
+api_keys.env
+**/api_keys.env
+keys.env
+**/keys.env
+SagaxAI-API-Keys/
+.config/ati/keys.env
+data/
+*.db
+*.sqlite
+__pycache__/
+.git/
+.gitignore
+.venv/
+venv/
+reports/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

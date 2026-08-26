@@ -1,0 +1,201 @@
+services:
+  # ─── PostgreSQL Database ───
+  postgres:
+    image: postgres:16-alpine
+    container_name: ati-postgres
+    environment:
+      POSTGRES_DB: trading_intelligence
+      POSTGRES_USER: ati
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ati_secure_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ati -d trading_intelligence"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ati-network
+
+  # ─── Redis (Event Bus / Cache) ───
+  redis:
+    image: redis:7-alpine
+    container_name: ati-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ati-network
+
+  # ─── ATI API Backend ───
+  ati-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ati-api
+    environment:
+      - PAPER_MODE=${PAPER_MODE:-true}
+      - LIVE_TRADING_AUTHORIZED=${LIVE_TRADING_AUTHORIZED:-false}
+      - DB_PATH=postgresql://ati:${POSTGRES_PASSWORD:-ati_secure_pass}@postgres:5432/trading_intelligence
+      - REDIS_URL=redis://redis:6379/0
+      - API_KEY=${API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - TZ=UTC
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ati-network
+    restart: unless-stopped
+
+  # ─── Data Fabric Service ───
+  ati-data-fabric:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ati-data-fabric
+    command: python -m backend.infrastructure.data_fabric.service
+    environment:
+      - PAPER_MODE=${PAPER_MODE:-true}
+      - DB_PATH=postgresql://ati:${POSTGRES_PASSWORD:-ati_secure_pass}@postgres:5432/trading_intelligence
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - TZ=UTC
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ati-api:
+        condition: service_started
+    networks:
+      - ati-network
+    restart: unless-stopped
+
+  # ─── Execution Core Service ───
+  ati-execution:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ati-execution
+    command: python -m backend.application.execution.execution_core
+    environment:
+      - PAPER_MODE=${PAPER_MODE:-true}
+      - LIVE_TRADING_AUTHORIZED=${LIVE_TRADING_AUTHORIZED:-false}
+      - DB_PATH=postgresql://ati:${POSTGRES_PASSWORD:-ati_secure_pass}@postgres:5432/trading_intelligence
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - TZ=UTC
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ati-data-fabric:
+        condition: service_started
+    networks:
+      - ati-network
+    restart: unless-stopped
+
+  # ─── MT5 Bridge (Host network for MT5 communication) ───
+  ati-mt5-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ati-mt5-bridge
+    command: python -m backend.infrastructure.mt5.ea.bridge
+    environment:
+      - PAPER_MODE=${PAPER_MODE:-true}
+      - MT5_MAGIC_NUMBER=123456
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PYTHONPATH=/app
+      - TZ=UTC
+    env_file:
+      - .env
+    volumes:
+      # Mount MT5 data folder from host (adjust path for your system)
+      - ${MT5_DATA_FOLDER:-/mnt/mt5}:/mt5_data:ro
+    network_mode: host
+    restart: unless-stopped
+
+  # ─── Prometheus Monitoring ───
+  prometheus:
+    image: prom/prometheus:v2.53
+    container_name: ati-prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    networks:
+      - ati-network
+    restart: unless-stopped
+
+  # ─── Grafana Dashboards ───
+  grafana:
+    image: grafana/grafana:10.4
+    container_name: ati-grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-ati_admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ati-network
+    restart: unless-stopped
+
+  # ─── MT5 Terminal (Optional - runs on host) ───
+  # MT5 cannot run well in Docker on Windows. Run natively on host.
+  # This service is a placeholder for documentation.
+  mt5-terminal:
+    image: alpine:latest
+    container_name: ati-mt5-placeholder
+    command: echo "MT5 must run natively on host. See DEPLOYMENT_GUIDE.md"
+    profiles:
+      - mt5
+    networks:
+      - ati-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  ati-network:
+    driver: bridge
