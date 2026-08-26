@@ -42,6 +42,8 @@ from backend.infrastructure.observation.observation_bus import ObservationBus
 from backend.infrastructure.sqlite.context_repository import SqliteContextRepository
 from backend.infrastructure.sqlite.database import Database
 from backend.infrastructure.sqlite.ledger_repository import SqliteLedgerRepository
+from backend.infrastructure.sqlite.macro_calendar_adapter import SqliteMacroCalendar
+from backend.infrastructure.sqlite.macro_event_repository import SqliteMacroEventRepository
 from backend.infrastructure.sqlite.memory_repository import SqliteMemoryRepository
 from backend.infrastructure.sqlite.observation_repository import SqliteObservationRepository
 from backend.infrastructure.sqlite.proposal_repository import SqliteProposalRepository
@@ -97,6 +99,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     supervisor = SupervisorService()
     app.state.supervisor = supervisor
+
+    # Economic-calendar store (official Forex Factory weekly export). Built
+    # unconditionally so research/CLI can read past events; the live poller
+    # and the pre-trade event veto are gated by settings.ff_enabled.
+    macro_event_repository = SqliteMacroEventRepository(database)
+    app.state.macro_event_repository = macro_event_repository
 
     # Single shared risk gate (gap G3 wiring). One instance is the authority:
     # the simulator evaluates with it, and the ingest/decision paths feed it
@@ -187,6 +195,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         supervisor=supervisor,
         risk_feed=risk_gate,
         kelly_from_memory=settings.risk_kelly_from_memory,
+        macro_calendar=(
+            SqliteMacroCalendar(macro_event_repository)
+            if settings.ff_enabled and settings.event_veto_enabled
+            else None
+        ),
+        event_veto_pre_minutes=settings.event_veto_pre_minutes,
+        event_veto_post_minutes=settings.event_veto_post_minutes,
     )
     app.state.database = database
 
@@ -205,6 +220,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     market_tasks: list[asyncio.Task[Any]] = []
     # Live MEXC price poller feeds /ws and /ws/market regardless of CCXT config.
     market_tasks.append(asyncio.create_task(_mexc_price_poller()))
+    if settings.ff_enabled:
+        from backend.application.pipeline.macro_calendar_service import (
+            MacroCalendarService,
+            make_http_json_fetcher,
+        )
+
+        macro_calendar_service = MacroCalendarService(
+            observation_bus,
+            macro_event_repository,
+            fetcher=make_http_json_fetcher(settings.ff_calendar_url),
+            poll_seconds=settings.ff_poll_seconds,
+        )
+        market_tasks.append(macro_calendar_service.start())
+        app.state.macro_calendar_service = macro_calendar_service
+        logger.info(
+            "Macro calendar poller enabled: url=%s poll=%ss veto=%s(-%d/+%dmin)",
+            settings.ff_calendar_url,
+            settings.ff_poll_seconds,
+            settings.event_veto_enabled,
+            settings.event_veto_pre_minutes,
+            settings.event_veto_post_minutes,
+        )
     if settings.ccxt_enabled and settings.ccxt_sandbox:
         try:
             from pydantic import SecretStr as _SecretStr

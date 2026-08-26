@@ -275,6 +275,25 @@ CREATE TABLE IF NOT EXISTS passport_lifecycle_events (
 );
 CREATE INDEX IF NOT EXISTS idx_passport_lifecycle_passport
     ON passport_lifecycle_events (passport_id, id ASC);
+
+CREATE TABLE IF NOT EXISTS macro_events (
+    event_id TEXT PRIMARY KEY,
+    currency TEXT NOT NULL,
+    title TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    impact TEXT NOT NULL,
+    forecast REAL,
+    previous REAL,
+    actual REAL,
+    status TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL,
+    released_detected_at TEXT,
+    payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_macro_events_schedule
+    ON macro_events (impact, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_macro_events_currency_time
+    ON macro_events (currency, scheduled_at);
 """
 
 

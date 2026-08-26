@@ -99,6 +99,8 @@ def drive(
         },
     )
     context = ingest.handle(event)
+    if context is None:  # unreachable for TRADE events; kept for the type contract
+        raise HTTPException(status_code=500, detail="trade event produced no context")
     lock = _operator_lock(request)
     if lock is not None:
         with lock:

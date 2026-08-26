@@ -16,8 +16,10 @@ risk gate).
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from backend.application.interfaces.ai_reasoner import AIReasoner
+from backend.application.interfaces.macro_calendar import MacroCalendar
 from backend.application.interfaces.proposal_repository import ProposalRepository
 from backend.application.interfaces.risk_feed import RiskFeed
 from backend.application.interfaces.supervisor import Supervisor
@@ -31,6 +33,10 @@ from backend.domain.context.market_context import MarketContext
 from backend.domain.decision.proposal import DecisionProposal, RiskContext
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
 class DecisionPipelineService:
@@ -75,6 +81,9 @@ class DecisionPipelineService:
         risk_feed: RiskFeed | None = None,
         kelly_from_memory: bool = False,
         execution_policy: str = "always_market",
+        macro_calendar: MacroCalendar | None = None,
+        event_veto_pre_minutes: int = 30,
+        event_veto_post_minutes: int = 15,
     ) -> None:
         self._reasoner = reasoner
         self._proposal_repository = proposal_repository
@@ -83,6 +92,9 @@ class DecisionPipelineService:
         self._supervisor = supervisor
         self._risk_feed = risk_feed
         self._kelly_from_memory = kelly_from_memory
+        self._macro_calendar = macro_calendar
+        self._event_veto_pre_minutes = max(0, int(event_veto_pre_minutes))
+        self._event_veto_post_minutes = max(0, int(event_veto_post_minutes))
         from backend.application.execution.execution_policy import (
             build_execution_policy,
         )
@@ -109,6 +121,35 @@ class DecisionPipelineService:
                     proposal_id=f"supervisor-{symbol}",
                     result=SimulationResult.NO_ACTION,
                     risk_verdict=f"supervisor:{decision.status.value}",
+                    report=None,
+                    position=None,
+                    record=None,
+                )
+
+        # Event-risk veto (risk-side safety, never alpha): refuse to open new
+        # risk into a High-impact macro release. Mirrors the supervisor
+        # refusal shape -- refusing is always safe, and the veto is logged.
+        if self._macro_calendar is not None:
+            gated = self._macro_calendar.high_impact_within(
+                symbol,
+                now=_utcnow(),
+                pre_minutes=self._event_veto_pre_minutes,
+                post_minutes=self._event_veto_post_minutes,
+            )
+            if gated is not None:
+                logger.warning(
+                    "Event veto: %s (%s %s) within +%d/-%dmin of release -- no proposal for %s",
+                    gated.event_id,
+                    gated.currency,
+                    gated.title,
+                    self._event_veto_pre_minutes,
+                    self._event_veto_post_minutes,
+                    symbol,
+                )
+                return SimulationStep(
+                    proposal_id=f"event-veto-{symbol}",
+                    result=SimulationResult.NO_ACTION,
+                    risk_verdict=(f"event_veto:HIGH:{gated.currency}:{gated.title[:40]}"),
                     report=None,
                     position=None,
                     record=None,

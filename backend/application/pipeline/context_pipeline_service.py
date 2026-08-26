@@ -141,12 +141,15 @@ class ContextPipelineService:
             return
         self._enrichment.enrich(event)
 
-    def handle(self, event: ObservationEvent) -> MarketContext:
+    def handle(self, event: ObservationEvent) -> MarketContext | None:
         """Process one observation event through the durable ingest path.
 
         Synchronous single-event entry point used by the operator drive loop
         (and by :meth:`start` per event). Returns the built context so callers
-        can run a decision on exactly what was persisted.
+        can run a decision on exactly what was persisted, or ``None`` when the
+        event is a non-market observation (macro/news/sentiment): those are
+        persisted at-least-once for research but never enter symbol windows,
+        never touch freshness/toxicity feeds, and never drive decisions.
         """
         self._record_freshness(event)
         self._record_toxicity(event)
@@ -155,6 +158,10 @@ class ContextPipelineService:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Observation repository save failed for %s: %s", event.event_key, exc)
             raise
+
+        if event.event_type not in _MARKET_DATA_EVENT_TYPES:
+            logger.debug("Persisted non-market observation %s", event.event_key)
+            return None
 
         self._enrich(event)
 

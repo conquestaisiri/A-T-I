@@ -206,6 +206,10 @@ class MarketLoopService:
         self._events_seen += 1
         try:
             context = self._ingest.handle(event)
+            if context is None:
+                # Non-market observation (macro/news/sentiment): persisted for
+                # research, never traded.
+                return
 
             mark_price = self._mark_price(event)
             if mark_price is None:

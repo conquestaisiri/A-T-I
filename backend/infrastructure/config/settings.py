@@ -90,6 +90,18 @@ class Settings(BaseSettings):
     deriv_channels: str = "ticks,candles"
     high_impact_news_times: str | None = None
 
+    # Economic-calendar intelligence (official Forex Factory weekly export) --
+    # ff_enabled gates the background poller; default off keeps tests and
+    # backtests deterministic. The veto window stands aside around High-impact
+    # releases for the listed currencies (risk-side safety, not alpha).
+    ff_enabled: bool = False
+    ff_poll_seconds: int = 300
+    ff_calendar_url: str = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+    event_veto_enabled: bool = True
+    event_veto_pre_minutes: int = 30
+    event_veto_post_minutes: int = 15
+    event_veto_currencies: str = "USD,EUR,GBP,JPY"
+
     # Omega / God-mode multi-provider routing (ADR 0005/0006, Continuity) -----
     # When True the decision pipeline uses SmartFallbackReasoner (Zen -> Groq ->
     # OpenRouter -> Cerebras/Gemini) with instant key rotation and hedged race.
