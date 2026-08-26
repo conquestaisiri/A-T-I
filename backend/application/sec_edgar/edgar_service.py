@@ -248,21 +248,26 @@ class EdgarService:
 
         for cik in ciks:
             try:
-                # Get 13F filings
+                # Get 13F filings. edgartools 5.x get_filings() has no per-CIK
+                # parameter: filter by form + filing-date window here, then
+                # attribute filings to the requested CIK post-fetch.
                 filings = await asyncio.to_thread(
                     functools.partial(
                         get_filings,
-                        cik,
                         form="13F",
-                        start_date=start_date,
-                        end_date=end_date,
+                        filing_date=(f"{start_date:%Y-%m-%d}:{end_date:%Y-%m-%d}"),
                     )
                 )
-                if not filings:
+                if filings is None:
                     continue
 
                 for filing in filings:
                     try:
+                        f_cik = getattr(filing, "cik", None)
+                        if f_cik is None:
+                            f_cik = getattr(getattr(filing, "company", None), "cik", None)
+                        if f_cik is not None and int(str(f_cik)) != int(cik):
+                            continue
                         thirteen_f = filing.obj()
                         if not isinstance(thirteen_f, list):
                             continue

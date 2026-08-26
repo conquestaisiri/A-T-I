@@ -12,7 +12,12 @@ httpx>=0.27
 aiohttp>=3.9
 feedparser>=6.0
 numpy>=1.26
-edgartools>=5.0
+edgartools==5.46.0
+# Typed heavy stack — kept identical to the local dev env so inline
+# type: ignore usage in portfolio_risk/edgar paths behaves the same on CI.
+pandas==3.0.5
+riskfolio-lib==7.3.0
+cvxpy==1.9.2
 pydantic-ai-slim>=2.0
 
 # Tooling + typing stubs
