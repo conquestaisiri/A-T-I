@@ -29,13 +29,22 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
 /* ═══ ANIMATIONS ═══ */
 @keyframes fg{0%{background:rgba(0,229,160,.15)}100%{background:transparent}}
 @keyframes fr{0%{background:rgba(255,71,87,.15)}100%{background:transparent}}
+@keyframes fg1{0%{box-shadow:inset 0 0 0 999px rgba(0,229,160,.08)}100%{box-shadow:inset 0 0 0 999px transparent}}
+@keyframes fg2{0%{box-shadow:inset 0 0 0 999px rgba(0,229,160,.14);transform:scale(1.01)}100%{box-shadow:transparent;transform:scale(1)}}
+@keyframes fg3{0%{box-shadow:inset 0 0 0 999px rgba(0,229,160,.22);transform:scale(1.02)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes fr1{0%{box-shadow:inset 0 0 0 999px rgba(255,71,87,.08)}100%{box-shadow:transparent}}
+@keyframes fr2{0%{box-shadow:inset 0 0 0 999px rgba(255,71,87,.14);transform:scale(1.01)}100%{box-shadow:transparent;transform:scale(1)}}
+@keyframes fr3{0%{box-shadow:inset 0 0 0 999px rgba(255,71,87,.22);transform:scale(1.02)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes livePulse{0%{transform:scale(.6);opacity:.35}100%{transform:scale(1.8);opacity:0}}
 @keyframes pd{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
-@keyframes si{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes si{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @keyframes sir{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
 @keyframes sp{to{transform:rotate(360deg)}}
 @keyframes nu{from{opacity:.2}to{opacity:1}}
-@keyframes pf{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+@keyframes pf{0%{transform:scale(1)}50%{transform:scale(1.02)}100%{transform:scale(1)}}
 @keyframes bg{0%,100%{border-color:var(--bd)}50%{border-color:var(--blu3)}}
+@keyframes pulseStale{0%,100%{opacity:1}50%{opacity:.6}}
+@keyframes sk{0%{background-position:100% 0}100%{background-position:-100% 0}}
 .fg{animation:fg .5s}.fr{animation:fr .5s}
 .si{animation:si .3s ease-out}.sir{animation:sir .3s ease-out}
 .pd{animation:pd 2s ease-in-out infinite}
@@ -43,36 +52,44 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
 
 /* ═══ SHELL ═══ */
 #app{display:grid;grid-template-rows:40px 1fr;height:100vh;overflow:hidden}
-.body{display:grid;grid-template-columns:48px 1fr;overflow:hidden}
+.body{display:grid;grid-template-columns:56px 1fr;overflow:hidden}
 
-/* ═══ TOPBAR ═══ */
-.top{display:flex;align-items:center;padding:0 14px;background:var(--bg1);border-bottom:1px solid var(--bd);gap:16px}
-.top-logo{font-size:12px;font-weight:800;letter-spacing:-.02em}
+/* ═══ TOPBAR — glass terminal header ═══ */
+.top{display:flex;align-items:center;padding:0 14px;height:44px;background:rgba(10,15,26,0.72);backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2);border-bottom:1px solid rgba(30,44,69,0.8);gap:12px;position:sticky;top:0;z-index:20;box-shadow:0 1px 0 rgba(91,141,239,0.06),0 4px 16px rgba(0,0,0,0.35)}
+.top-logo{font-size:11px;font-weight:800;letter-spacing:0.02em}
 .top-logo b{color:var(--blu)}
 .top-sep{width:1px;height:20px;background:var(--bd)}
-.top-price{font-family:var(--fm);font-size:16px;font-weight:700;transition:color .3s,transform .2s}
-.top-price.up{color:var(--grn)}.top-price.down{color:var(--red)}
-.top-chg{font-family:var(--fm);font-size:11px;font-weight:600;padding:1px 5px;border-radius:3px}
-.top-chg.up{color:var(--grn);background:var(--grn2)}
-.top-chg.down{color:var(--red);background:var(--red2)}
+.top-pair{font-family:var(--fm);font-size:10px;font-weight:700;letter-spacing:0.06em;color:var(--tx2)}
+.top-price{font-family:var(--fm);font-size:17px;font-weight:700;letter-spacing:-0.03em;font-variant-numeric:tabular-nums;min-width:9ch;text-align:right;transition:color .15s,transform .12s,text-shadow .15s}
+.top-price.up{color:var(--grn);text-shadow:0 0 10px rgba(0,229,160,.45);transform:translateY(-1px)}
+.top-price.down{color:var(--red);text-shadow:0 0 10px rgba(255,71,87,.4);transform:translateY(1px)}
+.top-chg{font-family:var(--fm);font-size:10px;font-weight:700;padding:0 6px;height:20px;display:inline-flex;align-items:center;border-radius:999px;border:1px solid transparent;letter-spacing:0.04em}
+.top-chg.up{color:var(--grn);background:var(--grn2);border-color:rgba(0,229,160,.18)}
+.top-chg.down{color:var(--red);background:var(--red2);border-color:rgba(255,71,87,.18)}
 .top-right{margin-left:auto;display:flex;align-items:center;gap:10px}
-.top-pill{font-size:9px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:3px;text-transform:uppercase}
-.top-clock{font-family:var(--fm);font-size:11px;color:var(--tx3)}
-.ws-ind{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--tx3)}
-.ws-dot{width:5px;height:5px;border-radius:50%}
+.top-pill{font-size:9px;font-weight:700;letter-spacing:.08em;padding:0 8px;height:20px;display:inline-flex;align-items:center;gap:4px;border-radius:999px;border:1px solid transparent;text-transform:uppercase}
+.top-clock{font-family:var(--fm);font-size:10px;font-weight:500;color:var(--tx1)}
+.top-clock span{color:var(--tx3)}
+.ws-ind{display:flex;align-items:center;gap:6px;font-size:9px;font-weight:700;letter-spacing:.06em;padding:3px 8px;border-radius:999px;background:rgba(0,229,160,.08);border:1px solid rgba(0,229,160,.18);color:var(--grn)}
+.ws-ind.off{background:var(--red2);border-color:var(--red3);color:var(--red)}
+.ws-dot{width:6px;height:6px;border-radius:50%;position:relative}
 .ws-dot.on{background:var(--grn);box-shadow:0 0 4px var(--grn)}
+.ws-dot.on::after{content:'';position:absolute;inset:-4px;border-radius:50%;background:var(--grn);opacity:.18;animation:livePulse 1.8s ease-out infinite}
 .ws-dot.off{background:var(--red)}
 .ws-flash{animation:pf .3s ease-out alternate}
 
 /* ═══ SIDEBAR ═══ */
 .side{background:var(--bg1);border-right:1px solid var(--bd);display:flex;flex-direction:column}
-.side-nav{flex:1;padding:4px 0}
-.nav-i{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 0;cursor:pointer;color:var(--tx3);transition:all var(--tr);border-left:2px solid transparent;user-select:none}
-.nav-i:hover{color:var(--tx2);background:var(--bg2)}
-.nav-i.on{color:var(--blu);border-left-color:var(--blu);background:rgba(91,141,239,.05)}
+.side-nav{flex:1;padding:4px 0;display:flex;flex-direction:column;gap:2px}
+.nav-i{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;margin:2px 6px;cursor:pointer;color:var(--tx3);transition:all var(--tr);border-radius:8px;position:relative;user-select:none}
+.nav-i:hover{color:var(--tx1);background:var(--bg2);transform:translateX(1px)}
+.nav-i.on{color:var(--tx1);background:linear-gradient(180deg,rgba(91,141,239,.14),rgba(91,141,239,.06))}
+.nav-i.on::before{content:'';position:absolute;left:-6px;top:18%;bottom:18%;width:3px;border-radius:99px;background:var(--blu);box-shadow:0 0 8px var(--blu)}
+.nav-i.on svg{stroke-width:2;filter:drop-shadow(0 0 4px rgba(91,141,239,.4))}
 .nav-i svg{width:17px;height:17px}
-.nav-i span{font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-.side-ft{padding:6px;border-top:1px solid var(--bd);font-size:8px;color:var(--tx3);text-align:center}
+.nav-i span{font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;opacity:.9}
+.side-nav::after{content:'';height:1px;background:var(--bd);margin:6px 10px}
+.side-ft{height:32px;display:flex;align-items:center;justify-content:center;gap:6px;border-top:1px solid rgba(30,44,69,.6);background:rgba(0,0,0,.15);font-size:8px;font-weight:600;color:var(--tx3);text-align:center;text-transform:uppercase;letter-spacing:.06em}
 
 /* ═══ CONTENT ═══ */
 .main{overflow-y:auto;padding:10px;display:grid;gap:8px;align-content:start;grid-template-columns:repeat(12,1fr)}
@@ -173,6 +190,31 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
 .sel{background:var(--bg2);color:var(--tx1);border:1px solid var(--bd);border-radius:var(--r);padding:4px 8px;font-size:11px;font-family:var(--fu);outline:none;cursor:pointer}
 .sel:focus{border-color:var(--blu)}
 
+/* ═══ CHART EXTRAS ═══ */
+.chart-hdr .sym{font-family:var(--fm)}
+.chart-box.fs{position:fixed;inset:44px 0 0 56px;z-index:20;height:auto !important;background:var(--bg1)}
+.tf-group{display:inline-flex;background:var(--bg0);border:1px solid var(--bd);border-radius:6px;padding:2px;gap:2px}
+.tf-group .btn{border:none;background:transparent;color:var(--tx3);padding:3px 9px;border-radius:4px;font-family:var(--fm);font-weight:600}
+.tf-group .btn.active{background:var(--blu);color:#fff;box-shadow:0 1px 4px rgba(91,141,239,.3)}
+.sk{height:10px;background:linear-gradient(90deg,var(--bg2) 25%,var(--bg3) 37%,var(--bg2) 63%);background-size:400% 100%;animation:sk 1.2s ease infinite;border-radius:4px}
+
+/* ═══ KPI POLISH ═══ */
+.kpi{transition:transform .18s,border-color .18s,box-shadow .18s}
+.kpi:hover{transform:translateY(-1px);border-color:var(--bd2);box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.kpi.primary{border-left:2px solid var(--blu)}
+.kpi.pnl-card{border-left:2px solid var(--grn)}
+.kpi.pnl-card.tr{border-left-color:var(--red)}
+.pos-card{border:1px solid var(--bd);border-radius:6px;padding:8px;background:var(--bg2);transition:transform .18s,border-color .18s}
+.pos-card:hover{transform:translateY(-1px);border-color:var(--bd2)}
+.rk-bar{height:6px}
+.es-filter{display:flex;gap:4px;padding:4px 0}
+.chat-bubble{border-radius:14px;padding:6px 10px;font-size:11px;max-width:75%;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.chat-bubble.user{border-radius:14px 14px 4px 14px;background:var(--blu2);color:var(--tx1);border:1px solid var(--blu3)}
+.chat-bubble.assistant{border-radius:14px 14px 14px 4px;background:var(--bg3);color:var(--tx2);border:1px solid var(--bd2)}
+.pnl{transition:transform .18s cubic-bezier(.34,1.56,.64,1),border-color .18s,box-shadow .18s}
+.pnl:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.25)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}}
+
 /* ═══ UTIL ═══ */
 .mono{font-family:var(--fm)}
 .tg{color:var(--grn)}.tr{color:var(--red)}.tb{color:var(--blu)}.ta{color:var(--amb)}.tc{color:var(--cyn)}.tm{color:var(--tx3)}
@@ -244,19 +286,28 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
     <input class="in" v-model="pairSearch" @keyup.enter="selectSearchPair()" placeholder="Search pairs, Enter to load…" style="width:200px">
     <button class="btn btn-g" @click="selectSearchPair()" style="padding:3px 8px;font-size:10px">GO</button>
     <span class="pl pl-gy" v-if="allPairs.length" v-text="allPairs.length + ' pairs'"></span>
-    <div style="display:flex;gap:2px">
-      <button v-for="tf in timeframes" :key="tf" class="btn btn-g" :class="{active:timeframe===tf}"
-        @click="timeframe=tf; isForex ? (initTVChart(), loadTA()) : loadKlines()" style="padding:3px 8px;font-size:10px" v-text="tf"></button>
+    <div class="tf-group">
+      <button v-for="tf in timeframes" :key="tf" class="btn" :class="{active:timeframe===tf}"
+        @click="timeframe=tf; isForex ? (initTVChart(), loadTA()) : loadKlines()" style="font-size:10px" v-text="tf"></button>
     </div>
     <span class="pl pl-c" v-text="isForex ? 'MT5 Forex' : 'MEXC Live'"></span>
   </div>
 
   <!-- Candlestick / TradingView Chart -->
   <div class="c8">
-    <div class="pnl"><div style="position:relative;height:380px">
+    <div class="pnl chart-pnl">
+      <div class="chart-hdr" style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--bd);background:var(--bg2);font-family:var(--fm);font-size:10px">
+        <span class="sym" style="font-weight:700;color:var(--tx1);font-size:12px" v-text="pair"></span>
+        <span class="live-dot" style="width:6px;height:6px;border-radius:50%;background:var(--grn);box-shadow:0 0 6px var(--grn)"></span>
+        <span class="pl pl-b" style="font-size:9px" v-text="timeframe"></span>
+        <span class="chart-ohlc" style="color:var(--tx2);display:flex;gap:10px;margin-left:8px" v-if="!isForex"><span>O <b v-text="priceFmt"></b></span></span>
+        <button class="btn btn-g" style="margin-left:auto;padding:2px 6px;font-size:9px" @click="document.querySelector('.chart-box')?.classList.toggle('fs')">⛶ Fullscreen</button>
+      </div>
+      <div class="chart-box" style="position:relative;height:380px">
       <div ref="chartEl" v-show="!isForex" style="position:absolute;inset:0"></div>
       <div id="tv_chart" v-show="isForex" style="position:absolute;inset:0"></div>
-    </div></div>
+      <div class="chart-tip" style="position:absolute;top:8px;left:8px;background:rgba(10,15,26,.85);backdrop-filter:blur(6px);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;font-family:var(--fm);font-size:10px;pointer-events:none;display:none"></div>
+      </div></div>
   </div>
 
   <!-- Order Book + AI -->
@@ -334,9 +385,9 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
   <!-- KPIs -->
   <div class="c12">
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-      <div class="kpi"><div class="kpi-l">EQUITY</div><div class="kpi-v" v-text="fmt(equity)"></div><div class="kpi-s">USDT</div></div>
+      <div class="kpi primary"><div class="kpi-l">EQUITY</div><div class="kpi-v" v-text="fmt(equity)"></div><div class="kpi-s">USDT</div></div>
       <div class="kpi"><div class="kpi-l">POSITIONS</div><div class="kpi-v" v-text="Object.keys(positions).length"></div><div class="kpi-s">open</div></div>
-      <div class="kpi"><div class="kpi-l">TOTAL PNL</div><div class="kpi-v" :class="pnlCls(totalPnl)" v-text="fmt(totalPnl,4)"></div><div class="kpi-s">realized</div></div>
+      <div class="kpi pnl-card" :class="totalPnl>0?'tg':totalPnl<0?'tr':''"><div class="kpi-l">TOTAL PNL</div><div class="kpi-v" :class="pnlCls(totalPnl)" v-text="fmt(totalPnl,4)"></div><div class="kpi-s">realized</div></div>
       <div class="kpi"><div class="kpi-l">AI SIGNALS</div><div class="kpi-v" v-text="proposalCount"></div><div class="kpi-s">total</div></div>
     </div>
   </div>
@@ -410,16 +461,23 @@ body{background:var(--bg0);color:var(--tx1);font-family:var(--fu);font-size:13px
     <!-- AI Chat — the NPC that knows the house -->
     <div class="pnl" style="margin-top:8px">
       <div class="pnl-h"><span class="pnl-t">AI Chat</span><span class="pl pl-c">concierge</span></div>
-      <div style="max-height:180px;overflow-y:auto;padding:6px 8px" ref="chatScroll">
-        <div v-if="!chatHistory.length" class="mono" style="font-size:10px;color:var(--tx3);padding:6px">Ask me: "are you trading?", "trade XAUUSD", "start engine", "what's happening?"</div>
-        <div v-for="(m,i) in chatHistory" :key="i" :style="{textAlign: m.role==='user' ? 'right' : 'left', margin:'4px 0'}">
-          <span :style="{display:'inline-block',maxWidth:'85%',padding:'4px 8px',borderRadius:'6px',fontSize:'11px',background: m.role==='user' ? 'var(--blu2)' : 'var(--bg2)', color: m.role==='user' ? 'var(--tx1)' : 'var(--tx2)'}" v-text="m.content"></span>
+      <div style="max-height:280px;min-height:200px;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column" ref="chatScroll">
+        <div v-if="!chatHistory.length" style="padding:6px">
+          <div class="mono" style="font-size:10px;color:var(--tx3);margin-bottom:6px">Try:</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <span v-for="chip in ['are you trading?','start engine','trade XAUUSD','what\\'s happening?','risk status']" :key="chip" @click="chatInput=chip; sendChat()" style="padding:4px 8px;border-radius:999px;font-size:9px;font-weight:700;background:var(--bg3);border:1px solid var(--bd2);color:var(--tx2);cursor:pointer" v-text="chip"></span>
+          </div>
         </div>
-        <div v-if="chatBusy" class="mono" style="font-size:10px;color:var(--tx3);padding:4px">…thinking</div>
+        <div v-for="(m,i) in chatHistory" :key="i" style="display:flex;gap:6px;align-items:flex-start;margin:4px 0" :style="{justifyContent: m.role==='user' ? 'flex-end' : 'flex-start'}">
+          <span v-if="m.role==='assistant'" style="width:20px;height:20px;border-radius:50%;background:var(--bg3);border:1px solid var(--bd2);display:grid;place-items:center;font-size:10px;flex-shrink:0">🤖</span>
+          <span class="chat-bubble" :class="m.role" v-text="m.content"></span>
+          <span v-if="m.role==='user'" style="width:20px;height:20px;border-radius:50%;background:var(--blu2);border:1px solid var(--blu3);display:grid;place-items:center;font-size:10px;flex-shrink:0">👤</span>
+        </div>
+        <div v-if="chatBusy" style="display:flex;gap:4px;align-items:center;padding:4px;font-size:10px;color:var(--tx3)"><span style="width:6px;height:6px;border-radius:50%;background:var(--blu);animation:pd 1s infinite"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--blu);animation:pd 1s .2s infinite"></span><span style="width:6px;height:6px;border-radius:50%;background:var(--blu);animation:pd 1s .4s infinite"></span> Concierge is reasoning…</div>
       </div>
       <div style="display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--bd)">
-        <input class="in" v-model="chatInput" @keyup.enter="sendChat" placeholder="Talk to the engine…" style="flex:1;font-size:11px;padding:6px 8px" :disabled="chatBusy">
-        <button class="btn btn-p" @click="sendChat" :disabled="chatBusy || !chatInput.trim()" style="font-size:10px;padding:6px 12px">Send</button>
+        <input class="in" v-model="chatInput" @keyup.enter="sendChat" placeholder="Ask the concierge… (Enter to send)" style="flex:1;font-size:11px;padding:6px 8px" :disabled="chatBusy">
+        <button class="btn btn-p" @click="sendChat" :disabled="chatBusy || !chatInput.trim()" style="font-size:10px;padding:6px 12px;border-radius:50%;width:36px;height:36px;display:grid;place-items:center">✈</button>
       </div>
     </div>
   </div>
