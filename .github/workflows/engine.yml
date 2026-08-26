@@ -1,0 +1,52 @@
+name: Engine — paper brain (always-on)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # every 15 min, paper brain heartbeat
+  workflow_dispatch:
+
+jobs:
+  paper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+      - name: Run paper brain (5 min)
+        env:
+          PAPER_MODE: "true"
+          TRADING_MODE: "forex"
+          FF_ENABLED: "true"
+          OMEGA_ENABLED: "false"
+        run: |
+          timeout 320 py -3 -m backend.main --mode paper &
+          pid=$!
+          sleep 300
+          kill $pid || true
+          wait $pid || true
+          ls -lh data/ || true
+          cat data/live_state.json 2>/dev/null | head -20 || echo "no live_state yet"
+      - name: Commit live state (if changed)
+        run: |
+          git config user.name "ati-engine[bot]"
+          git config user.email "engine@ati.local"
+          git add data/live_state.json data/engine_state.json data/trading_intelligence.db 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "engine: live state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push || echo "nothing to push or push failed (first run)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: engine-logs
+          path: |
+            uvicorn.log
+            data/*.json

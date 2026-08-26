@@ -61,6 +61,7 @@ from backend.presentation.api.routes_memory import router as memory_router
 from backend.presentation.api.routes_mt5 import router as mt5_router
 from backend.presentation.api.routes_operator import router as operator_router
 from backend.presentation.api.routes_reconciliation import router as reconciliation_router
+from backend.presentation.api.routes_strategy import router as strategy_router
 from backend.presentation.api.routes_supervisor import router as supervisor_router
 
 logger = logging.getLogger(__name__)
@@ -427,6 +428,7 @@ app.include_router(mt5_router)
 app.include_router(operator_router)
 app.include_router(engine_router)
 app.include_router(ai_router)
+app.include_router(strategy_router)
 
 
 # --- WebSocket for real-time streaming ---
